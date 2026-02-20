@@ -58,6 +58,12 @@ footer{
   margin-bottom:6px;
 }
 
+.pill.warn{
+  color:#ffe7b0;
+  border-color: rgba(255,204,102,.35);
+  background: rgba(255,204,102,.10);
+}
+
 .row{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -108,6 +114,11 @@ button.ghost{
 button.ghost.danger{
   color:#ffd4d4;
   border-color:rgba(255,93,93,.4);
+}
+
+button:disabled{
+  opacity:.45;
+  filter:saturate(.7);
 }
 
 .btnRow{
