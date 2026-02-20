@@ -1,226 +1,590 @@
-:root{
-  --bg:#07111d;
-  --card:#0d2338;
-  --card2:#0b1b2b;
-  --text:#eaf2ff;
-  --muted:#a9c0dd;
-  --accent:#39c6ff;
-  --good:#39d98a;
-  --bad:#ff5d5d;
-  --warn:#ffcc66;
-  --border:rgba(255,255,255,.10);
+// REBUILT Week 0 Scout (1 robot per device)
+// Fixes in this version:
+// - Home screen no longer re-renders on every keystroke (prevents focus loss)
+// - "required" pills removed; labels use "*" marker instead
+// - Start AUTO enabled/disabled dynamically without full render
+
+const LS_KEY = "rebuildt_scout_records_v8";
+
+function loadRecords() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch { return []; }
+}
+function saveRecords(records) {
+  localStorage.setItem(LS_KEY, JSON.stringify(records));
+}
+function clampNonNeg(n){ return Math.max(0, n|0); }
+function clamp1to5(n){ return Math.min(5, Math.max(1, n|0)); }
+function nowIso(){ return new Date().toISOString(); }
+
+const TELEOP_SEGMENTS = [
+  { key:"TRANSITION", label:"Transition Shift" }, // always Active
+  { key:"SHIFT1", label:"Shift 1" },
+  { key:"SHIFT2", label:"Shift 2" },
+  { key:"SHIFT3", label:"Shift 3" },
+  { key:"SHIFT4", label:"Shift 4" }
+];
+
+const INACTIVE_ACTIVITY_OPTIONS = [
+  "Nothing",
+  "Picked Up Fuel",
+  "Played Defense",
+  "Herd Fuel (NZ to AZ)",
+  "Passed Fuel (NZ to AZ)",
+  "Stole Fuel (from Opp AZ)"
+];
+
+const AUTO_FINISH_OPTIONS = [
+  "Alliance Zone",
+  "Neutral Zone (AZ Side)",
+  "Neutral Zone (Opp Side)",
+  "On Tower (Climbed)"
+];
+
+// --- App state ---
+const state = {
+  step: "home", // home | auto | teleop | endgame | review
+  record: newBlankRecord(),
+  teleopSegmentIndex: 0
+};
+
+function newBlankRecord() {
+  return {
+    createdAt: nowIso(),
+
+    event: "",
+    matchNumber: "",
+    scoutName: "",
+    alliance: "Red",
+    teamNumber: "",
+
+    autoFuel: 0,
+    autoClimb: "None", // None | L1 | L2 | L3
+    autoFinish: "Alliance Zone",
+    autoWinnerAlliance: "Unknown", // Red | Blue | Tie | Unknown
+
+    teleop: TELEOP_SEGMENTS.map(() => ({
+      hubStatus: "Unknown",
+      activeFuel: 0,
+      activeCycles: 0,
+      inactiveActivities: []
+    })),
+
+    endgameLastActiveFuel: 0,
+    endgameClimb: "None",
+
+    accuracyRating: 3,
+    noDefense: false,
+    defenseRating: 3,
+    robotRating: 3,
+    driverRating: 3,
+
+    notes: ""
+  };
 }
 
-*{box-sizing:border-box}
-body{
-  margin:0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  background:linear-gradient(180deg, var(--bg), #050b12);
-  color:var(--text);
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
 }
 
-header{padding:16px}
-.title{font-size:22px;font-weight:800}
-.sub{font-size:13px;color:var(--muted)}
-
-main{padding:12px 16px 96px 16px;max-width:900px;margin:0 auto}
-
-footer{
-  position:fixed;
-  left:0; right:0; bottom:0;
-  display:flex;
-  gap:12px;
-  padding:12px 16px;
-  background: rgba(5,11,18,.95);
-  border-top:1px solid var(--border);
+function card(title, innerHtml) {
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `<div class="big">${title}</div>${innerHtml || ""}`;
+  return div;
 }
 
-.card{
-  background:linear-gradient(180deg,var(--card),var(--card2));
-  border:1px solid var(--border);
-  border-radius:18px;
-  padding:14px;
-  margin-bottom:12px;
-  box-shadow: 0 10px 24px rgba(0,0,0,.25);
+function counterRow3(label, value, onMinus1, onPlus1, onPlus5, hint) {
+  const wrap = document.createElement("div");
+  wrap.className = "counter";
+  wrap.innerHTML = `
+    <div style="flex:1">
+      <div class="big">${escapeHtml(label)}</div>
+      <div class="pill">${escapeHtml(hint || "")}</div>
+    </div>
+    <div class="val">${value}</div>
+    <div class="counterBtns">
+      <button class="bad" type="button">−1</button>
+      <button type="button">+1</button>
+      <button class="good" type="button">+5</button>
+    </div>
+  `;
+  const [m1, p1, p5] = wrap.querySelectorAll("button");
+  m1.onclick = onMinus1;
+  p1.onclick = onPlus1;
+  p5.onclick = onPlus5;
+  return wrap;
 }
 
-.big{font-size:20px;font-weight:800}
-
-.pill{
-  display:inline-block;
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.06);
-  font-size:13px;
-  color:var(--muted);
-  margin-right:6px;
-  margin-bottom:6px;
+function counterRow2(label, value, onMinus1, onPlus1, hint) {
+  const wrap = document.createElement("div");
+  wrap.className = "counter";
+  wrap.innerHTML = `
+    <div style="flex:1">
+      <div class="big">${escapeHtml(label)}</div>
+      <div class="pill">${escapeHtml(hint || "")}</div>
+    </div>
+    <div class="val">${value}</div>
+    <div class="counterBtns">
+      <button class="bad" type="button">−1</button>
+      <button class="good" type="button">+1</button>
+    </div>
+  `;
+  const [m1, p1] = wrap.querySelectorAll("button");
+  m1.onclick = onMinus1;
+  p1.onclick = onPlus1;
+  return wrap;
 }
 
-.pill.warn{
-  color:#ffe7b0;
-  border-color: rgba(255,204,102,.35);
-  background: rgba(255,204,102,.10);
+function ratingRow(label, value, onChange, help, disabled=false) {
+  const wrap = document.createElement("div");
+  wrap.className = "counter";
+  wrap.innerHTML = `
+    <div style="flex:1">
+      <div class="big">${escapeHtml(label)}</div>
+      <div class="pill">${escapeHtml(help || "")}</div>
+    </div>
+    <div class="val">${disabled ? "—" : value}</div>
+    <div style="min-width:240px">
+      <input type="range" min="1" max="5" step="1" value="${value}" ${disabled ? "disabled" : ""}/>
+      <div class="pill" style="display:flex; justify-content:space-between; margin-top:8px">
+        <span>1</span><span>3</span><span>5</span>
+      </div>
+    </div>
+  `;
+  const slider = wrap.querySelector("input");
+  slider.oninput = (e) => onChange(clamp1to5(parseInt(e.target.value, 10)));
+  return wrap;
 }
 
-.row{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
+function buttonGroup3(labels, selectedValue, onSelect, classMap = {}) {
+  const row = document.createElement("div");
+  row.className = "btnRow3";
+  labels.forEach((lbl) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = lbl;
+    if (classMap[lbl]) btn.classList.add(classMap[lbl]);
+    if (lbl === selectedValue) btn.classList.add("selected");
+    btn.onclick = () => onSelect(lbl);
+    row.appendChild(btn);
+  });
+  return row;
 }
 
-@media(max-width:720px){
-  .row{grid-template-columns:1fr;}
+// --- Shift logic ---
+function isMyHubActiveForShift(shiftNum /*1-4*/) {
+  const r = state.record;
+
+  if (r.autoWinnerAlliance === "Unknown" || r.autoWinnerAlliance === "Tie") {
+    return shiftNum % 2 === 1; // Shift1 active
+  }
+
+  const myAlliance = r.alliance;
+  const myAllianceWonAuto = (r.autoWinnerAlliance === myAlliance);
+  if (myAllianceWonAuto) return shiftNum % 2 === 0; // winner inactive first
+  return shiftNum % 2 === 1;
 }
 
-label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-input,select,textarea{
-  width:100%;
-  padding:12px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:#061222;
-  color:var(--text);
-  font-size:16px;
+function currentTeleopHubStatus() {
+  const idx = state.teleopSegmentIndex;
+  if (idx === 0) return "Active";
+  return isMyHubActiveForShift(idx) ? "Active" : "Inactive";
 }
 
-textarea{min-height:90px; resize:vertical}
+function initializeSegmentOnEnter(idx) {
+  const seg = state.record.teleop[idx];
+  const status = currentTeleopHubStatus();
 
-button{
-  border:none;
-  border-radius:18px;
-  padding:14px;
-  font-size:18px;
-  font-weight:800;
-  background:rgba(255,255,255,.1);
-  color:var(--text);
-  border:1px solid var(--border);
+  if (seg.hubStatus !== status) {
+    seg.hubStatus = status;
+
+    if (status === "Active") {
+      seg.activeFuel = 0;
+      seg.activeCycles = 0;
+    } else {
+      if (!Array.isArray(seg.inactiveActivities)) seg.inactiveActivities = [];
+    }
+  }
 }
 
-button:active{transform:scale(.99)}
+// --- Footer ---
+function wireFooterButtons() {
+  const btnExport = document.getElementById("btnExport");
+  const btnWipe = document.getElementById("btnWipe");
 
-button.primary{background:rgba(57,198,255,.2); border-color:rgba(57,198,255,.35)}
-button.good{background:rgba(57,217,138,.2); border-color:rgba(57,217,138,.35)}
-button.bad{background:rgba(255,93,93,.2); border-color:rgba(255,93,93,.35)}
-button.warn{background:rgba(255,204,102,.2); border-color:rgba(255,204,102,.35)}
+  btnExport.onclick = async () => {
+    const records = loadRecords();
+    if (!records.length) return alert("No saved data yet.");
 
-button.ghost{
-  flex:1;
-  font-size:14px;
-  padding:12px;
+    const stamp = new Date().toISOString().replaceAll(":","-").slice(0,19);
+    const csvBlob = new Blob([recordsToCsv(records)], { type: "text/csv" });
+
+    try {
+      await shareOrDownload(`rebuildt_scout_${stamp}.csv`, csvBlob);
+    } catch (e) {
+      alert("Export canceled or failed.");
+      console.warn(e);
+    }
+  };
+
+  btnWipe.onclick = () => {
+    if (!confirm("Wipe ALL locally saved scouting records?")) return;
+    localStorage.removeItem(LS_KEY);
+    alert("Local data wiped.");
+    render();
+  };
 }
 
-button.ghost.danger{
-  color:#ffd4d4;
-  border-color:rgba(255,93,93,.4);
+async function shareOrDownload(filename, blob) {
+  const file = new File([blob], filename, { type: blob.type });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    await navigator.share({ files: [file], title: filename });
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-button:disabled{
-  opacity:.45;
-  filter:saturate(.7);
+// --- CSV ---
+function recordsToCsv(records) {
+  const baseCols = [
+    "createdAt","event","matchNumber","scoutName","teamNumber","alliance",
+    "autoFuel","autoClimb","autoFinish","autoWinnerAlliance",
+    "endgameLastActiveFuel","endgameClimb",
+    "accuracyRating","noDefense","defenseRating","robotRating","driverRating",
+    "notes"
+  ];
+
+  const teleopCols = [];
+  TELEOP_SEGMENTS.forEach((seg, i) => {
+    teleopCols.push(
+      `teleop_${i}_${seg.key}_hubStatus`,
+      `teleop_${i}_${seg.key}_activeFuel`,
+      `teleop_${i}_${seg.key}_activeCycles`,
+      `teleop_${i}_${seg.key}_inactiveActivities`
+    );
+  });
+
+  const header = [...baseCols, ...teleopCols];
+  const escape = (v) => `"${String(v ?? "").replaceAll('"','""')}"`;
+  const rows = [header.join(",")];
+
+  for (const r of records) {
+    const row = [];
+
+    for (const col of baseCols) {
+      if (col === "defenseRating" && r.noDefense) row.push(escape(""));
+      else row.push(escape(r[col]));
+    }
+
+    for (let i = 0; i < TELEOP_SEGMENTS.length; i++) {
+      const t = r.teleop?.[i] || {};
+      const inactive = Array.isArray(t.inactiveActivities) ? t.inactiveActivities.join("; ") : "";
+      row.push(
+        escape(t.hubStatus),
+        escape(t.activeFuel),
+        escape(t.activeCycles),
+        escape(inactive)
+      );
+    }
+
+    rows.push(row.join(","));
+  }
+
+  return rows.join("\n");
 }
 
-.btnRow{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-  margin-top:12px;
+// --- Screens ---
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+
+  if (state.step === "home") showHome(app);
+  if (state.step === "auto") showAuto(app);
+  if (state.step === "teleop") showTeleop(app);
+  if (state.step === "endgame") showEndgame(app);
+  if (state.step === "review") showReview(app);
+
+  wireFooterButtons();
 }
 
-.btnRow3{
-  display:grid;
-  grid-template-columns:1fr 1fr 1fr;
-  gap:12px;
-  margin-top:12px;
+function showHome(app) {
+  const r = state.record;
+  const records = loadRecords();
+  const recent = [...records].slice(-8).reverse();
+
+  const c = card("Home", `
+    <div class="pill">Saved matches: <b>${records.length}</b></div>
+
+    <div class="sectionTitle">New Match</div>
+    <div id="reqMsg" class="inlineWarn" style="display:none;">
+      Match # and Team # are required to start.
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label>Event</label>
+        <input id="event" placeholder="Week 0 / Scrimmage Name" value="${escapeHtml(r.event)}" />
+      </div>
+      <div>
+        <label>Match # <span class="reqStar">*</span></label>
+        <input id="matchNumber" inputmode="numeric" placeholder="e.g. 12" value="${escapeHtml(r.matchNumber)}" />
+      </div>
+      <div>
+        <label>Scout Name</label>
+        <input id="scoutName" placeholder="Scout name" value="${escapeHtml(r.scoutName)}" />
+      </div>
+      <div>
+        <label>Team # <span class="reqStar">*</span></label>
+        <input id="teamNumber" inputmode="numeric" placeholder="e.g. 8724" value="${escapeHtml(r.teamNumber)}" />
+      </div>
+      <div>
+        <label>Alliance</label>
+        <select id="alliance">
+          <option ${r.alliance==="Red"?"selected":""}>Red</option>
+          <option ${r.alliance==="Blue"?"selected":""}>Blue</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btnRow" style="margin-top:14px">
+      <button class="primary" id="startAuto" type="button">Start AUTO →</button>
+      <button id="resetForm" type="button">Reset Form</button>
+    </div>
+
+    <div class="sectionTitle">Recent Saved</div>
+    <div class="savedList" id="savedList"></div>
+  `);
+
+  app.appendChild(c);
+
+  const elEvent = c.querySelector("#event");
+  const elMatch = c.querySelector("#matchNumber");
+  const elScout = c.querySelector("#scoutName");
+  const elTeam  = c.querySelector("#teamNumber");
+  const elAlli  = c.querySelector("#alliance");
+  const btnStart = c.querySelector("#startAuto");
+  const reqMsg = c.querySelector("#reqMsg");
+
+  function canStart() {
+    const teamOk = String(r.teamNumber || "").trim().length > 0;
+    const matchOk = String(r.matchNumber || "").trim().length > 0;
+    return teamOk && matchOk;
+  }
+
+  function updateStartUi(showWarningIfInvalid=false) {
+    const ok = canStart();
+    btnStart.disabled = !ok;
+    if (showWarningIfInvalid) reqMsg.style.display = ok ? "none" : "block";
+    else reqMsg.style.display = "none";
+  }
+
+  // IMPORTANT: no render() on input — just update state + button enabled state
+  elEvent.addEventListener("input", (e)=> { r.event = e.target.value; });
+  elMatch.addEventListener("input", (e)=> { r.matchNumber = e.target.value; updateStartUi(false); });
+  elScout.addEventListener("input", (e)=> { r.scoutName = e.target.value; });
+  elTeam.addEventListener("input", (e)=> { r.teamNumber = e.target.value; updateStartUi(false); });
+  elAlli.addEventListener("change", (e)=> { r.alliance = e.target.value; });
+
+  // Set initial state
+  updateStartUi(false);
+
+  btnStart.onclick = () => {
+    if (!canStart()) {
+      updateStartUi(true);
+      return;
+    }
+    state.step = "auto";
+    render();
+  };
+
+  c.querySelector("#resetForm").onclick = () => {
+    const next = newBlankRecord();
+    next.event = r.event;
+    next.scoutName = r.scoutName;
+    state.record = next;
+    render();
+  };
+
+  const list = c.querySelector("#savedList");
+  if (!recent.length) {
+    list.innerHTML = `<div class="pill">No saved matches yet.</div>`;
+  } else {
+    recent.forEach((rec) => {
+      const row = document.createElement("div");
+      row.className = "savedRow";
+      row.innerHTML = `
+        <div>
+          <div><b>Team ${escapeHtml(rec.teamNumber || "—")}</b> • Match ${escapeHtml(rec.matchNumber || "—")} • ${escapeHtml(rec.alliance || "")}</div>
+          <div class="meta">${escapeHtml(rec.event || "")} • ${escapeHtml(rec.createdAt || "")}</div>
+        </div>
+        <button class="smallBtn bad" type="button">Delete</button>
+      `;
+      row.querySelector("button").onclick = () => {
+        const all = loadRecords();
+        const target = rec.createdAt;
+        const filtered = all.filter(x => x.createdAt !== target);
+        saveRecords(filtered);
+        render();
+      };
+      list.appendChild(row);
+    });
+  }
 }
 
-button.selected{
-  outline: 3px solid rgba(57,198,255,.55);
-  border-color: rgba(57,198,255,.65);
-  background: rgba(57,198,255,.25);
+function showAuto(app) {
+  const r = state.record;
+  const winnerSelected = (r.autoWinnerAlliance === "Red" || r.autoWinnerAlliance === "Blue" || r.autoWinnerAlliance === "Tie");
+
+  const c = card("AUTO (all stats)", `
+    <div class="pill">Auto Result winner is <b>required</b> before TELEOP.</div>
+    ${winnerSelected ? "" : `<div class="inlineWarn">Select Auto Result winner (Red / Blue / Tie) to allow TELEOP.</div>`}
+  `);
+
+  const nav = document.createElement("div");
+  nav.className = "btnRow";
+  nav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="primary" type="button" id="next" ${winnerSelected ? "" : "disabled"}>Start TELEOP →</button>
+  `;
+  nav.querySelector("#back").onclick = () => { state.step="home"; render(); };
+  nav.querySelector("#next").onclick = () => {
+    if (!winnerSelected) return;
+    state.teleopSegmentIndex = 0;
+    initializeSegmentOnEnter(0);
+    state.step="teleop";
+    render();
+  };
+
+  c.appendChild(counterRow3(
+    "Auto Fuel",
+    r.autoFuel,
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel - 1); render(); },
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 1); render(); },
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 5); render(); },
+    "Count fuel scored by this robot in AUTO."
+  ));
+
+  const climb = document.createElement("div");
+  climb.className = "counter";
+  climb.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Auto Climb</div>
+      <div class="pill">Did they climb during AUTO?</div>
+      <select id="autoClimb" style="margin-top:10px">
+        <option value="None" ${r.autoClimb==="None"?"selected":""}>None</option>
+        <option value="L1" ${r.autoClimb==="L1"?"selected":""}>Level 1</option>
+        <option value="L2" ${r.autoClimb==="L2"?"selected":""}>Level 2</option>
+        <option value="L3" ${r.autoClimb==="L3"?"selected":""}>Level 3</option>
+      </select>
+    </div>
+  `;
+  climb.querySelector("#autoClimb").onchange = (e)=>{ r.autoClimb = e.target.value; };
+  c.appendChild(climb);
+
+  const finish = document.createElement("div");
+  finish.className = "counter";
+  finish.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Where did they finish AUTO?</div>
+      <div class="pill">Choose one</div>
+      <select id="autoFinish" style="margin-top:10px">
+        ${AUTO_FINISH_OPTIONS.map(opt => `<option value="${escapeHtml(opt)}" ${r.autoFinish===opt?"selected":""}>${escapeHtml(opt)}</option>`).join("")}
+      </select>
+    </div>
+  `;
+  finish.querySelector("#autoFinish").onchange = (e)=>{ r.autoFinish = e.target.value; };
+  c.appendChild(finish);
+
+  const resultWrap = document.createElement("div");
+  resultWrap.className = "card";
+  resultWrap.style.marginTop = "12px";
+  resultWrap.innerHTML = `
+    <div class="big">Auto Result (Winner) <span class="reqStar">*</span></div>
+    <div class="pill">Select Red / Blue / Tie</div>
+  `;
+  const group = buttonGroup3(
+    ["Red","Blue","Tie"],
+    winnerSelected ? r.autoWinnerAlliance : "",
+    (val) => { r.autoWinnerAlliance = val; render(); },
+    { Red: "bad", Blue: "primary", Tie: "warn" }
+  );
+  resultWrap.appendChild(group);
+
+  const current = document.createElement("div");
+  current.className = "pill";
+  current.innerHTML = `Selected: <b>${escapeHtml(r.autoWinnerAlliance)}</b>`;
+  resultWrap.appendChild(current);
+
+  c.appendChild(resultWrap);
+
+  c.appendChild(nav);
+  app.appendChild(c);
 }
 
-.counter{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-top:12px;
-  padding:12px;
-  border-radius:16px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.04);
-}
+function showTeleop(app) {
+  const r = state.record;
+  const idx = state.teleopSegmentIndex;
 
-.val{font-size:30px;font-weight:900}
+  initializeSegmentOnEnter(idx);
 
-.counterBtns{
-  display:flex;
-  gap:10px;
-}
+  const meta = TELEOP_SEGMENTS[idx];
+  const status = currentTeleopHubStatus();
+  const seg = r.teleop[idx];
 
-.counterBtns button{
-  min-width:64px;
-  height:64px;
-  border-radius:18px;
-  font-size:20px;
-}
+  const c = card(`TELEOP: ${meta.label}`, `
+    <div class="pill">Your HUB is: <b>${status}</b></div>
+    <div class="pill">Segment ${idx+1} of ${TELEOP_SEGMENTS.length}</div>
+    <div style="height:10px"></div>
+    <button class="${status==="Active" ? "good" : "bad"}" type="button" style="width:100%; font-size:22px; padding:18px">
+      ${status==="Active" ? "ACTIVE (fuel & cycles reset this segment)" : "INACTIVE (multi-select what they did)"}
+    </button>
+  `);
 
-.sectionTitle{
-  margin-top:14px;
-  font-weight:800;
-  font-size:16px;
-  color:var(--text);
-}
+  if (status === "Active") {
+    c.appendChild(counterRow3(
+      "Fuel (this active segment)",
+      seg.activeFuel,
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel - 1); render(); },
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 1); render(); },
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 5); render(); },
+      "Resets to 0 when this segment becomes active."
+    ));
 
-.checklist{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:10px;
-  margin-top:10px;
-}
+    c.appendChild(counterRow2(
+      "Cycles (this active segment)",
+      seg.activeCycles,
+      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles - 1); render(); },
+      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles + 1); render(); },
+      "How many cycles during this segment."
+    ));
+  } else {
+    const wrap = document.createElement("div");
+    wrap.className = "card";
+    wrap.innerHTML = `
+      <div class="big">Inactive Activity (select all that apply)</div>
+      <div class="pill">Choices are multi-select</div>
+      <div class="checklist" id="checklist"></div>
+    `;
 
-.checkItem{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:10px 12px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.03);
-}
-
-.checkItem input{
-  width:22px;
-  height:22px;
-}
-
-.savedList{
-  margin-top:10px;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-
-.savedRow{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
-  padding:12px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.03);
-}
-
-.savedRow .meta{
-  color:var(--muted);
-  font-size:13px;
-}
-
-.smallBtn{
-  font-size:14px;
-  padding:10px 12px;
-  border-radius:14px;
-}
+    const list = wrap.querySelector("#checklist");
+    INACTIVE_ACTIVITY_OPTIONS.forEach(opt => {
+      const item = document.createElement("label");
+      item.className = "checkItem";
+      const checked = seg.inactiveActivities.includes(opt);
+      item.innerHTML = `
+        <input type="checkbox" ${che
