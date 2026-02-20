@@ -1,32 +1,31 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0b1b2b" />
-    <link rel="manifest" href="manifest.json" />
-    <link rel="stylesheet" href="styles.css" />
-    <title>REBUILT Scout (Week 0)</title>
-  </head>
-  <body>
-    <header>
-      <div class="title">REBUILT Scout (Week 0)</div>
-      <div class="sub">Offline • iPad-friendly • Export via AirDrop</div>
-    </header>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1b2b" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>REBUILT Scout (Week 0)</title>
+</head>
+<body>
+  <header>
+    <div class="title">REBUILT Scout (Week 0)</div>
+    <div class="sub">Offline • iPad Friendly • CSV Export</div>
+  </header>
 
-    <main id="app"></main>
+  <main id="app"></main>
 
-    <footer>
-      <button class="ghost" id="btnExport">Export Data</button>
-      <button class="ghost danger" id="btnWipe">Wipe Local Data</button>
-    </footer>
+  <footer>
+    <button class="ghost" id="btnExport">Export CSV</button>
+    <button class="ghost danger" id="btnWipe">Wipe Local Data</button>
+  </footer>
 
-    <script src="app.js"></script>
-    <script>
-      // Service worker for offline use
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("./sw.js");
-      }
-    </script>
-  </body>
+  <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js");
+    }
+  </script>
+</body>
 </html>
