@@ -1,13 +1,10 @@
 // REBUILT Week 0 Scout (1 robot per device)
-// Updates in this version:
-// - Auto finish options updated
-// - Defense rating has "No Defense" checkbox (disables slider)
-// - Match # + Team # mandatory before starting AUTO
-// - Auto Result winner mandatory before starting TELEOP
-// - CSV export includes noDefense flag and blank defenseRating when noDefense is true
-// - Version bumped to avoid old local schema clashes
+// Fixes in this version:
+// - Home screen no longer re-renders on every keystroke (prevents focus loss)
+// - "required" pills removed; labels use "*" marker instead
+// - Start AUTO enabled/disabled dynamically without full render
 
-const LS_KEY = "rebuildt_scout_records_v7";
+const LS_KEY = "rebuildt_scout_records_v8";
 
 function loadRecords() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
@@ -58,78 +55,32 @@ function newBlankRecord() {
     event: "",
     matchNumber: "",
     scoutName: "",
-    alliance: "Red", // robot being scouted
+    alliance: "Red",
     teamNumber: "",
 
-    // AUTO (one page)
     autoFuel: 0,
     autoClimb: "None", // None | L1 | L2 | L3
     autoFinish: "Alliance Zone",
-    autoWinnerAlliance: "Unknown", // Red | Blue | Tie | Unknown (mandatory before teleop)
+    autoWinnerAlliance: "Unknown", // Red | Blue | Tie | Unknown
 
-    // TELEOP per segment
     teleop: TELEOP_SEGMENTS.map(() => ({
       hubStatus: "Unknown",
-      activeFuel: 0,    // resets each active segment
-      activeCycles: 0,  // resets each active segment
+      activeFuel: 0,
+      activeCycles: 0,
       inactiveActivities: []
     })),
 
-    // END GAME
     endgameLastActiveFuel: 0,
     endgameClimb: "None",
 
-    // Ratings (end game screen)
     accuracyRating: 3,
     noDefense: false,
-    defenseRating: 3,  // ignored if noDefense = true
+    defenseRating: 3,
     robotRating: 3,
     driverRating: 3,
 
     notes: ""
   };
-}
-
-/**
- * Shift logic:
- * - Transition always Active
- * - Shifts 1–4: alliance that won AUTO has its HUB inactive first (Shift 1), then alternates.
- * - Tie/Unknown => assume Active first
- */
-function isMyHubActiveForShift(shiftNum /*1-4*/) {
-  const r = state.record;
-
-  if (r.autoWinnerAlliance === "Unknown" || r.autoWinnerAlliance === "Tie") {
-    return shiftNum % 2 === 1; // Shift1 active
-  }
-
-  const myAlliance = r.alliance; // Red/Blue
-  const myAllianceWonAuto = (r.autoWinnerAlliance === myAlliance);
-
-  if (myAllianceWonAuto) return shiftNum % 2 === 0; // winner inactive first
-  return shiftNum % 2 === 1; // loser active first
-}
-
-function currentTeleopHubStatus() {
-  const idx = state.teleopSegmentIndex;
-  if (idx === 0) return "Active";
-  return isMyHubActiveForShift(idx) ? "Active" : "Inactive";
-}
-
-function initializeSegmentOnEnter(idx) {
-  const seg = state.record.teleop[idx];
-  const status = currentTeleopHubStatus();
-
-  if (seg.hubStatus !== status) {
-    seg.hubStatus = status;
-
-    if (status === "Active") {
-      seg.activeFuel = 0;
-      seg.activeCycles = 0;
-    } else {
-      if (!Array.isArray(seg.inactiveActivities)) seg.inactiveActivities = [];
-    }
-  }
 }
 
 function escapeHtml(s){
@@ -226,6 +177,43 @@ function buttonGroup3(labels, selectedValue, onSelect, classMap = {}) {
   return row;
 }
 
+// --- Shift logic ---
+function isMyHubActiveForShift(shiftNum /*1-4*/) {
+  const r = state.record;
+
+  if (r.autoWinnerAlliance === "Unknown" || r.autoWinnerAlliance === "Tie") {
+    return shiftNum % 2 === 1; // Shift1 active
+  }
+
+  const myAlliance = r.alliance;
+  const myAllianceWonAuto = (r.autoWinnerAlliance === myAlliance);
+  if (myAllianceWonAuto) return shiftNum % 2 === 0; // winner inactive first
+  return shiftNum % 2 === 1;
+}
+
+function currentTeleopHubStatus() {
+  const idx = state.teleopSegmentIndex;
+  if (idx === 0) return "Active";
+  return isMyHubActiveForShift(idx) ? "Active" : "Inactive";
+}
+
+function initializeSegmentOnEnter(idx) {
+  const seg = state.record.teleop[idx];
+  const status = currentTeleopHubStatus();
+
+  if (seg.hubStatus !== status) {
+    seg.hubStatus = status;
+
+    if (status === "Active") {
+      seg.activeFuel = 0;
+      seg.activeCycles = 0;
+    } else {
+      if (!Array.isArray(seg.inactiveActivities)) seg.inactiveActivities = [];
+    }
+  }
+}
+
+// --- Footer ---
 function wireFooterButtons() {
   const btnExport = document.getElementById("btnExport");
   const btnWipe = document.getElementById("btnWipe");
@@ -271,7 +259,7 @@ async function shareOrDownload(filename, blob) {
   URL.revokeObjectURL(url);
 }
 
-// --- CSV export ---
+// --- CSV ---
 function recordsToCsv(records) {
   const baseCols = [
     "createdAt","event","matchNumber","scoutName","teamNumber","alliance",
@@ -299,7 +287,7 @@ function recordsToCsv(records) {
     const row = [];
 
     for (const col of baseCols) {
-      if (col === "defenseRating" && r.noDefense) row.push(escape("")); // blank when no defense
+      if (col === "defenseRating" && r.noDefense) row.push(escape(""));
       else row.push(escape(r[col]));
     }
 
@@ -339,15 +327,13 @@ function showHome(app) {
   const records = loadRecords();
   const recent = [...records].slice(-8).reverse();
 
-  const teamOk = String(r.teamNumber || "").trim().length > 0;
-  const matchOk = String(r.matchNumber || "").trim().length > 0;
-  const canStart = teamOk && matchOk;
-
   const c = card("Home", `
     <div class="pill">Saved matches: <b>${records.length}</b></div>
 
     <div class="sectionTitle">New Match</div>
-    ${canStart ? "" : `<div class="pill warn">Match # and Team # are required to start.</div>`}
+    <div id="reqMsg" class="inlineWarn" style="display:none;">
+      Match # and Team # are required to start.
+    </div>
 
     <div class="row" style="margin-top:12px">
       <div>
@@ -355,15 +341,15 @@ function showHome(app) {
         <input id="event" placeholder="Week 0 / Scrimmage Name" value="${escapeHtml(r.event)}" />
       </div>
       <div>
-        <label>Match # <span class="pill warn">required</span></label>
+        <label>Match # <span class="reqStar">*</span></label>
         <input id="matchNumber" inputmode="numeric" placeholder="e.g. 12" value="${escapeHtml(r.matchNumber)}" />
       </div>
       <div>
         <label>Scout Name</label>
-        <input id="scoutName" placeholder="e.g. Eli" value="${escapeHtml(r.scoutName)}" />
+        <input id="scoutName" placeholder="Scout name" value="${escapeHtml(r.scoutName)}" />
       </div>
       <div>
-        <label>Team # <span class="pill warn">required</span></label>
+        <label>Team # <span class="reqStar">*</span></label>
         <input id="teamNumber" inputmode="numeric" placeholder="e.g. 8724" value="${escapeHtml(r.teamNumber)}" />
       </div>
       <div>
@@ -376,7 +362,7 @@ function showHome(app) {
     </div>
 
     <div class="btnRow" style="margin-top:14px">
-      <button class="primary" id="startAuto" type="button" ${canStart ? "" : "disabled"}>Start AUTO →</button>
+      <button class="primary" id="startAuto" type="button">Start AUTO →</button>
       <button id="resetForm" type="button">Reset Form</button>
     </div>
 
@@ -386,14 +372,42 @@ function showHome(app) {
 
   app.appendChild(c);
 
-  c.querySelector("#event").oninput = (e)=> { r.event = e.target.value; render(); };
-  c.querySelector("#matchNumber").oninput = (e)=> { r.matchNumber = e.target.value; render(); };
-  c.querySelector("#scoutName").oninput = (e)=> { r.scoutName = e.target.value; };
-  c.querySelector("#teamNumber").oninput = (e)=> { r.teamNumber = e.target.value; render(); };
-  c.querySelector("#alliance").onchange = (e)=> { r.alliance = e.target.value; };
+  const elEvent = c.querySelector("#event");
+  const elMatch = c.querySelector("#matchNumber");
+  const elScout = c.querySelector("#scoutName");
+  const elTeam  = c.querySelector("#teamNumber");
+  const elAlli  = c.querySelector("#alliance");
+  const btnStart = c.querySelector("#startAuto");
+  const reqMsg = c.querySelector("#reqMsg");
 
-  c.querySelector("#startAuto").onclick = () => {
-    if (!canStart) return;
+  function canStart() {
+    const teamOk = String(r.teamNumber || "").trim().length > 0;
+    const matchOk = String(r.matchNumber || "").trim().length > 0;
+    return teamOk && matchOk;
+  }
+
+  function updateStartUi(showWarningIfInvalid=false) {
+    const ok = canStart();
+    btnStart.disabled = !ok;
+    if (showWarningIfInvalid) reqMsg.style.display = ok ? "none" : "block";
+    else reqMsg.style.display = "none";
+  }
+
+  // IMPORTANT: no render() on input — just update state + button enabled state
+  elEvent.addEventListener("input", (e)=> { r.event = e.target.value; });
+  elMatch.addEventListener("input", (e)=> { r.matchNumber = e.target.value; updateStartUi(false); });
+  elScout.addEventListener("input", (e)=> { r.scoutName = e.target.value; });
+  elTeam.addEventListener("input", (e)=> { r.teamNumber = e.target.value; updateStartUi(false); });
+  elAlli.addEventListener("change", (e)=> { r.alliance = e.target.value; });
+
+  // Set initial state
+  updateStartUi(false);
+
+  btnStart.onclick = () => {
+    if (!canStart()) {
+      updateStartUi(true);
+      return;
+    }
     state.step = "auto";
     render();
   };
@@ -438,10 +452,9 @@ function showAuto(app) {
 
   const c = card("AUTO (all stats)", `
     <div class="pill">Auto Result winner is <b>required</b> before TELEOP.</div>
-    ${winnerSelected ? "" : `<div class="pill warn">Select Auto Result winner (Red / Blue / Tie) to allow TELEOP.</div>`}
+    ${winnerSelected ? "" : `<div class="inlineWarn">Select Auto Result winner (Red / Blue / Tie) to allow TELEOP.</div>`}
   `);
 
-  // Nav
   const nav = document.createElement("div");
   nav.className = "btnRow";
   nav.innerHTML = `
@@ -457,7 +470,6 @@ function showAuto(app) {
     render();
   };
 
-  // Auto Fuel
   c.appendChild(counterRow3(
     "Auto Fuel",
     r.autoFuel,
@@ -467,7 +479,6 @@ function showAuto(app) {
     "Count fuel scored by this robot in AUTO."
   ));
 
-  // Auto climb
   const climb = document.createElement("div");
   climb.className = "counter";
   climb.innerHTML = `
@@ -485,13 +496,12 @@ function showAuto(app) {
   climb.querySelector("#autoClimb").onchange = (e)=>{ r.autoClimb = e.target.value; };
   c.appendChild(climb);
 
-  // Auto finish options (updated)
   const finish = document.createElement("div");
   finish.className = "counter";
   finish.innerHTML = `
     <div style="flex:1">
       <div class="big">Where did they finish AUTO?</div>
-      <div class="pill">Required options list</div>
+      <div class="pill">Choose one</div>
       <select id="autoFinish" style="margin-top:10px">
         ${AUTO_FINISH_OPTIONS.map(opt => `<option value="${escapeHtml(opt)}" ${r.autoFinish===opt?"selected":""}>${escapeHtml(opt)}</option>`).join("")}
       </select>
@@ -500,12 +510,11 @@ function showAuto(app) {
   finish.querySelector("#autoFinish").onchange = (e)=>{ r.autoFinish = e.target.value; };
   c.appendChild(finish);
 
-  // Auto winner (mandatory)
   const resultWrap = document.createElement("div");
   resultWrap.className = "card";
   resultWrap.style.marginTop = "12px";
   resultWrap.innerHTML = `
-    <div class="big">Auto Result (Winner) <span class="pill warn">required</span></div>
+    <div class="big">Auto Result (Winner) <span class="reqStar">*</span></div>
     <div class="pill">Select Red / Blue / Tie</div>
   `;
   const group = buttonGroup3(
@@ -517,7 +526,7 @@ function showAuto(app) {
   resultWrap.appendChild(group);
 
   const current = document.createElement("div");
-  current.className = winnerSelected ? "pill" : "pill warn";
+  current.className = "pill";
   current.innerHTML = `Selected: <b>${escapeHtml(r.autoWinnerAlliance)}</b>`;
   resultWrap.appendChild(current);
 
@@ -658,7 +667,6 @@ function showEndgame(app) {
   climbWrap.querySelector("#climb").onchange = (e)=>{ r.endgameClimb = e.target.value; };
   c.appendChild(climbWrap);
 
-  // Ratings (accuracy here only once)
   c.appendChild(ratingRow(
     "Accuracy (overall)",
     r.accuracyRating,
@@ -666,7 +674,6 @@ function showEndgame(app) {
     "1 = poor, 5 = excellent"
   ));
 
-  // Defense checkbox + rating
   const defenseCard = document.createElement("div");
   defenseCard.className = "card";
   defenseCard.innerHTML = `
@@ -815,5 +822,5 @@ function showReview(app) {
   app.appendChild(c);
 }
 
-// Start
+// start
 render();
