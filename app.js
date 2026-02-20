@@ -1,10 +1,11 @@
 // REBUILT Week 0 Scout (1 robot per device)
-// Fixes in this version:
-// - Home screen no longer re-renders on every keystroke (prevents focus loss)
-// - "required" pills removed; labels use "*" marker instead
-// - Start AUTO enabled/disabled dynamically without full render
+// v9 changes:
+// - Added Auto Starting Position (Depot Trench, Depot Bump, Hub, Outpost Bump, Outpost Trench)
+// - CSV export includes autoStartPos
+// - Home screen focus-loss fix retained
+// - Required pills removed; labels use "*" marker
 
-const LS_KEY = "rebuildt_scout_records_v8";
+const LS_KEY = "rebuildt_scout_records_v9";
 
 function loadRecords() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
@@ -41,6 +42,14 @@ const AUTO_FINISH_OPTIONS = [
   "On Tower (Climbed)"
 ];
 
+const AUTO_START_POS_OPTIONS = [
+  "Depot Trench",
+  "Depot Bump",
+  "Hub",
+  "Outpost Bump",
+  "Outpost Trench"
+];
+
 // --- App state ---
 const state = {
   step: "home", // home | auto | teleop | endgame | review
@@ -60,6 +69,7 @@ function newBlankRecord() {
 
     autoFuel: 0,
     autoClimb: "None", // None | L1 | L2 | L3
+    autoStartPos: "Hub",           // NEW
     autoFinish: "Alliance Zone",
     autoWinnerAlliance: "Unknown", // Red | Blue | Tie | Unknown
 
@@ -263,6 +273,7 @@ async function shareOrDownload(filename, blob) {
 function recordsToCsv(records) {
   const baseCols = [
     "createdAt","event","matchNumber","scoutName","teamNumber","alliance",
+    "autoStartPos",                     // NEW
     "autoFuel","autoClimb","autoFinish","autoWinnerAlliance",
     "endgameLastActiveFuel","endgameClimb",
     "accuracyRating","noDefense","defenseRating","robotRating","driverRating",
@@ -393,14 +404,12 @@ function showHome(app) {
     else reqMsg.style.display = "none";
   }
 
-  // IMPORTANT: no render() on input — just update state + button enabled state
   elEvent.addEventListener("input", (e)=> { r.event = e.target.value; });
   elMatch.addEventListener("input", (e)=> { r.matchNumber = e.target.value; updateStartUi(false); });
   elScout.addEventListener("input", (e)=> { r.scoutName = e.target.value; });
   elTeam.addEventListener("input", (e)=> { r.teamNumber = e.target.value; updateStartUi(false); });
   elAlli.addEventListener("change", (e)=> { r.alliance = e.target.value; });
 
-  // Set initial state
   updateStartUi(false);
 
   btnStart.onclick = () => {
@@ -469,6 +478,23 @@ function showAuto(app) {
     state.step="teleop";
     render();
   };
+
+  // NEW: Auto start position
+  const startPos = document.createElement("div");
+  startPos.className = "counter";
+  startPos.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Auto Starting Position</div>
+      <div class="pill">Choose one</div>
+      <select id="autoStartPos" style="margin-top:10px">
+        ${AUTO_START_POS_OPTIONS.map(opt =>
+          `<option value="${escapeHtml(opt)}" ${r.autoStartPos===opt?"selected":""}>${escapeHtml(opt)}</option>`
+        ).join("")}
+      </select>
+    </div>
+  `;
+  startPos.querySelector("#autoStartPos").onchange = (e)=>{ r.autoStartPos = e.target.value; };
+  c.appendChild(startPos);
 
   c.appendChild(counterRow3(
     "Auto Fuel",
@@ -770,6 +796,7 @@ function showReview(app) {
     <div class="pill">Event: <b>${escapeHtml(r.event||"—")}</b></div>
 
     <div class="sectionTitle">AUTO</div>
+    <div class="pill">Start: <b>${escapeHtml(r.autoStartPos)}</b></div>
     <div class="pill">Fuel: <b>${r.autoFuel}</b></div>
     <div class="pill">Auto Climb: <b>${escapeHtml(r.autoClimb)}</b></div>
     <div class="pill">Finish: <b>${escapeHtml(r.autoFinish)}</b></div>
@@ -799,10 +826,7 @@ function showReview(app) {
     <button class="good" type="button" id="save">Save Match</button>
   `;
 
-  nav.querySelector("#back").onclick = () => {
-    state.step = "endgame";
-    render();
-  };
+  nav.querySelector("#back").onclick = () => { state.step = "endgame"; render(); };
 
   nav.querySelector("#save").onclick = () => {
     const records = loadRecords();
