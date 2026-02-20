@@ -173,3 +173,16 @@ button.ghost.danger{
   border-radius:18px;
   font-size:28px;
 }
+
+.counterBtns{
+  display:flex;
+  gap:10px;
+}
+.counterBtns button{
+  min-width:64px;
+  height:64px;
+  border-radius:18px;
+  font-size:20px;
+}
+.counterBtns button.good{font-size:22px}
+
