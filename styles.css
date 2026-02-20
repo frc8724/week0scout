@@ -19,17 +19,11 @@ body{
   color:var(--text);
 }
 
-header{
-  padding:16px 16px 8px 16px;
-}
-.title{font-size:22px; font-weight:800; letter-spacing:.2px}
-.sub{font-size:13px; color:var(--muted); margin-top:2px}
+header{padding:16px}
+.title{font-size:22px;font-weight:800}
+.sub{font-size:13px;color:var(--muted)}
 
-main{
-  padding:12px 16px 96px 16px;
-  max-width: 900px;
-  margin: 0 auto;
-}
+main{padding:12px 16px 96px 16px;max-width:900px;margin:0 auto}
 
 footer{
   position:fixed;
@@ -37,38 +31,44 @@ footer{
   display:flex;
   gap:12px;
   padding:12px 16px;
-  background: rgba(5,11,18,.92);
-  backdrop-filter: blur(10px);
+  background: rgba(5,11,18,.95);
   border-top:1px solid var(--border);
 }
 
 .card{
-  background: linear-gradient(180deg, var(--card), var(--card2));
+  background:linear-gradient(180deg,var(--card),var(--card2));
   border:1px solid var(--border);
   border-radius:18px;
   padding:14px;
   margin-bottom:12px;
-  box-shadow: 0 10px 24px rgba(0,0,0,.25);
+}
+
+.big{font-size:20px;font-weight:800}
+
+.pill{
+  display:inline-block;
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.06);
+  font-size:13px;
+  color:var(--muted);
+  margin-right:6px;
+  margin-bottom:6px;
 }
 
 .row{
   display:grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns:1fr 1fr;
   gap:12px;
 }
 
-@media (max-width: 720px){
-  .row{grid-template-columns: 1fr;}
+@media(max-width:720px){
+  .row{grid-template-columns:1fr;}
 }
 
-label{
-  display:block;
-  font-size:12px;
-  color:var(--muted);
-  margin-bottom:6px;
-}
-
-input, select, textarea{
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+input,select,textarea{
   width:100%;
   padding:12px;
   border-radius:14px;
@@ -76,68 +76,35 @@ input, select, textarea{
   background:#061222;
   color:var(--text);
   font-size:16px;
-  outline:none;
 }
 
-textarea{min-height:84px; resize:vertical}
-
-.big{
-  font-size:20px;
-  font-weight:800;
-}
-
-.pill{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding:8px 10px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  background: rgba(255,255,255,.06);
-  color:var(--muted);
-  font-size:13px;
-}
-
-.btnRow{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:12px;
-  margin-top:12px;
-}
-
-.btnRow3{
-  display:grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap:12px;
-  margin-top:12px;
-}
+textarea{min-height:80px}
 
 button{
   border:none;
   border-radius:18px;
-  padding:14px 14px;
+  padding:14px;
   font-size:18px;
   font-weight:800;
+  background:rgba(255,255,255,.1);
   color:var(--text);
-  background: rgba(255,255,255,.10);
   border:1px solid var(--border);
 }
 
-button:active{transform: scale(.99)}
-button.primary{background: rgba(57,198,255,.22); border-color: rgba(57,198,255,.4)}
-button.good{background: rgba(57,217,138,.22); border-color: rgba(57,217,138,.45)}
-button.bad{background: rgba(255,93,93,.18); border-color: rgba(255,93,93,.35)}
-button.warn{background: rgba(255,204,102,.18); border-color: rgba(255,204,102,.35)}
+button.primary{background:rgba(57,198,255,.2)}
+button.good{background:rgba(57,217,138,.2)}
+button.bad{background:rgba(255,93,93,.2)}
+button.warn{background:rgba(255,204,102,.2)}
 
 button.ghost{
   flex:1;
   font-size:14px;
   padding:12px;
-  border-radius:14px;
 }
+
 button.ghost.danger{
   color:#ffd4d4;
-  border-color: rgba(255,93,93,.45);
+  border-color:rgba(255,93,93,.4);
 }
 
 .counter{
@@ -145,44 +112,23 @@ button.ghost.danger{
   align-items:center;
   justify-content:space-between;
   gap:12px;
-  margin-top:10px;
+  margin-top:12px;
   padding:12px;
   border-radius:16px;
   border:1px solid var(--border);
-  background: rgba(255,255,255,.04);
+  background:rgba(255,255,255,.04);
 }
 
-.counter .val{
-  font-size:34px;
-  font-weight:900;
-}
-
-.counter .hint{
-  color:var(--muted);
-  font-size:12px;
-}
+.val{font-size:30px;font-weight:900}
 
 .counterBtns{
   display:flex;
   gap:10px;
 }
 
-.counterBtns button{
-  width:64px;
-  height:64px;
-  border-radius:18px;
-  font-size:28px;
-}
-
-.counterBtns{
-  display:flex;
-  gap:10px;
-}
 .counterBtns button{
   min-width:64px;
   height:64px;
   border-radius:18px;
   font-size:20px;
 }
-.counterBtns button.good{font-size:22px}
-
