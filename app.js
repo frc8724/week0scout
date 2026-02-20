@@ -417,4 +417,387 @@ function showHome(app) {
           <div><b>Team ${escapeHtml(rec.teamNumber || "—")}</b> • Match ${escapeHtml(rec.matchNumber || "—")} • ${escapeHtml(rec.alliance || "")}</div>
           <div class="meta">${escapeHtml(rec.event || "")} • ${escapeHtml(rec.createdAt || "")}</div>
         </div>
-        <button class="smallBtn bad" typ
+        <button class="smallBtn bad" type="button">Delete</button>
+      `;
+      row.querySelector("button").onclick = () => {
+        // delete the matching createdAt record (good enough for Week 0)
+        const all = loadRecords();
+        const target = rec.createdAt;
+        const filtered = all.filter(x => x.createdAt !== target);
+        saveRecords(filtered);
+        render();
+      };
+      list.appendChild(row);
+    });
+  }
+}
+
+function showAuto(app) {
+  const r = state.record;
+
+  const c = card("AUTO (all stats)", `
+    <div class="pill">All AUTO info on one page.</div>
+    <div class="pill">Auto Result decides who goes inactive first in Shift 1.</div>
+  `);
+
+  // Back button (to Home)
+  const topNav = document.createElement("div");
+  topNav.className = "btnRow";
+  topNav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="primary" type="button" id="next">Start TELEOP →</button>
+  `;
+  topNav.querySelector("#back").onclick = () => { state.step="home"; render(); };
+  topNav.querySelector("#next").onclick = () => {
+    state.teleopSegmentIndex = 0;
+    initializeSegmentOnEnter(0);
+    state.step="teleop";
+    render();
+  };
+
+  // Auto Fuel
+  c.appendChild(counterRow3(
+    "Auto Fuel",
+    r.autoFuel,
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel - 1); render(); },
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 1); render(); },
+    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 5); render(); },
+    "Count fuel scored by this robot in AUTO."
+  ));
+
+  // Auto climb + finish position
+  const details = document.createElement("div");
+  details.className = "counter";
+  details.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Auto Climb</div>
+      <div class="pill">Did they climb during AUTO?</div>
+      <select id="autoClimb" style="margin-top:10px">
+        <option value="None" ${r.autoClimb==="None"?"selected":""}>None</option>
+        <option value="L1" ${r.autoClimb==="L1"?"selected":""}>Level 1</option>
+        <option value="L2" ${r.autoClimb==="L2"?"selected":""}>Level 2</option>
+        <option value="L3" ${r.autoClimb==="L3"?"selected":""}>Level 3</option>
+      </select>
+    </div>
+  `;
+  details.querySelector("#autoClimb").onchange = (e)=>{ r.autoClimb = e.target.value; };
+  c.appendChild(details);
+
+  const finish = document.createElement("div");
+  finish.className = "counter";
+  finish.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Where did they finish AUTO?</div>
+      <div class="pill">Simple location label.</div>
+      <select id="autoFinish" style="margin-top:10px">
+        <option value="Unknown" ${r.autoFinish==="Unknown"?"selected":""}>Unknown</option>
+        <option value="NZ" ${r.autoFinish==="NZ"?"selected":""}>NZ</option>
+        <option value="AZ" ${r.autoFinish==="AZ"?"selected":""}>AZ</option>
+        <option value="Center" ${r.autoFinish==="Center"?"selected":""}>Center / Midfield</option>
+        <option value="Near Source" ${r.autoFinish==="Near Source"?"selected":""}>Near Source</option>
+        <option value="Near Tower" ${r.autoFinish==="Near Tower"?"selected":""}>Near Tower</option>
+      </select>
+    </div>
+  `;
+  finish.querySelector("#autoFinish").onchange = (e)=>{ r.autoFinish = e.target.value; };
+  c.appendChild(finish);
+
+  // Auto Result Winner
+  const resultWrap = document.createElement("div");
+  resultWrap.className = "card";
+  resultWrap.style.marginTop = "12px";
+  resultWrap.innerHTML = `
+    <div class="big">Auto Result (Winner)</div>
+    <div class="pill">Select Red / Blue / Tie. (Shows selection.)</div>
+  `;
+  const group = buttonGroup3(
+    ["Red","Blue","Tie"],
+    (r.autoWinnerAlliance === "Unknown" ? "" : r.autoWinnerAlliance),
+    (val) => { r.autoWinnerAlliance = val; render(); },
+    { Red: "bad", Blue: "primary", Tie: "warn" }
+  );
+  resultWrap.appendChild(group);
+
+  const current = document.createElement("div");
+  current.className = "pill";
+  current.innerHTML = `Selected: <b>${escapeHtml(r.autoWinnerAlliance)}</b> (default Active-first if Tie/Unknown)`;
+  resultWrap.appendChild(current);
+
+  c.appendChild(resultWrap);
+
+  c.appendChild(topNav);
+  app.appendChild(c);
+}
+
+function showTeleop(app) {
+  const r = state.record;
+  const idx = state.teleopSegmentIndex;
+
+  initializeSegmentOnEnter(idx);
+
+  const meta = TELEOP_SEGMENTS[idx];
+  const status = currentTeleopHubStatus();
+  const seg = r.teleop[idx];
+
+  const c = card(`TELEOP: ${meta.label}`, `
+    <div class="pill">Your HUB is: <b>${status}</b></div>
+    <div class="pill">Segment ${idx+1} of ${TELEOP_SEGMENTS.length}</div>
+    <div style="height:10px"></div>
+    <button class="${status==="Active" ? "good" : "bad"}" type="button" style="width:100%; font-size:22px; padding:18px">
+      ${status==="Active" ? "ACTIVE (fuel & cycles reset this segment)" : "INACTIVE (multi-select what they did)"}
+    </button>
+  `);
+
+  // Active segment controls
+  if (status === "Active") {
+    c.appendChild(counterRow3(
+      "Fuel (this active segment)",
+      seg.activeFuel,
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel - 1); render(); },
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 1); render(); },
+      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 5); render(); },
+      "Resets to 0 when this segment becomes active."
+    ));
+
+    c.appendChild(counterRow2(
+      "Cycles (this active segment)",
+      seg.activeCycles,
+      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles - 1); render(); },
+      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles + 1); render(); },
+      "How many cycles during this segment."
+    ));
+  } else {
+    // Inactive multi-select checklist
+    const wrap = document.createElement("div");
+    wrap.className = "card";
+    wrap.innerHTML = `
+      <div class="big">Inactive Activity (select all that apply)</div>
+      <div class="pill">No fuel counting in inactive.</div>
+      <div class="checklist" id="checklist"></div>
+    `;
+
+    const list = wrap.querySelector("#checklist");
+    INACTIVE_ACTIVITY_OPTIONS.forEach(opt => {
+      const item = document.createElement("label");
+      item.className = "checkItem";
+      const checked = seg.inactiveActivities.includes(opt);
+      item.innerHTML = `
+        <input type="checkbox" ${checked ? "checked" : ""} />
+        <span>${escapeHtml(opt)}</span>
+      `;
+      const cb = item.querySelector("input");
+      cb.onchange = () => {
+        const set = new Set(seg.inactiveActivities);
+        if (cb.checked) set.add(opt);
+        else set.delete(opt);
+        seg.inactiveActivities = Array.from(set);
+      };
+      list.appendChild(item);
+    });
+
+    c.appendChild(wrap);
+  }
+
+  // Nav buttons
+  const nav = document.createElement("div");
+  nav.className = "btnRow";
+  nav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="primary" type="button" id="next">${idx === TELEOP_SEGMENTS.length-1 ? "End Game →" : "Next →"}</button>
+  `;
+
+  nav.querySelector("#back").onclick = () => {
+    if (idx === 0) {
+      state.step = "auto";
+      render();
+      return;
+    }
+    state.teleopSegmentIndex--;
+    render();
+  };
+
+  nav.querySelector("#next").onclick = () => {
+    if (idx === TELEOP_SEGMENTS.length-1) {
+      state.step = "endgame";
+      render();
+      return;
+    }
+    state.teleopSegmentIndex++;
+    render();
+  };
+
+  c.appendChild(nav);
+  app.appendChild(c);
+}
+
+function showEndgame(app) {
+  const r = state.record;
+
+  const c = card("End Game", `
+    <div class="pill">End Game includes last active hub fuel, climb, and ratings (including accuracy).</div>
+  `);
+
+  // Endgame last active fuel scoring
+  c.appendChild(counterRow3(
+    "Last Active Hub Fuel Scoring",
+    r.endgameLastActiveFuel,
+    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel - 1); render(); },
+    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel + 1); render(); },
+    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel + 5); render(); },
+    "Fuel scored during End Game (both hubs active)."
+  ));
+
+  // Climb select
+  const climbWrap = document.createElement("div");
+  climbWrap.className = "counter";
+  climbWrap.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Climb</div>
+      <div class="pill">End Game climb level</div>
+      <select id="climb" style="margin-top:10px">
+        <option value="None" ${r.endgameClimb==="None"?"selected":""}>None</option>
+        <option value="L1" ${r.endgameClimb==="L1"?"selected":""}>Level 1</option>
+        <option value="L2" ${r.endgameClimb==="L2"?"selected":""}>Level 2</option>
+        <option value="L3" ${r.endgameClimb==="L3"?"selected":""}>Level 3</option>
+      </select>
+    </div>
+  `;
+  climbWrap.querySelector("#climb").onchange = (e)=>{ r.endgameClimb = e.target.value; };
+  c.appendChild(climbWrap);
+
+  // Ratings (including accuracy, moved here)
+  c.appendChild(ratingRow(
+    "Accuracy (overall)",
+    r.accuracyRating,
+    (v)=>{ r.accuracyRating = v; render(); },
+    "1 = poor, 5 = excellent"
+  ));
+  c.appendChild(ratingRow(
+    "Defense rating",
+    r.defenseRating,
+    (v)=>{ r.defenseRating = v; render(); },
+    "If they played defense at any point"
+  ));
+  c.appendChild(ratingRow(
+    "Robot performance",
+    r.robotRating,
+    (v)=>{ r.robotRating = v; render(); },
+    "Overall effectiveness"
+  ));
+  c.appendChild(ratingRow(
+    "Driver performance",
+    r.driverRating,
+    (v)=>{ r.driverRating = v; render(); },
+    "Control, awareness, speed"
+  ));
+
+  // Notes
+  const notes = document.createElement("div");
+  notes.className = "counter";
+  notes.innerHTML = `
+    <div style="flex:1">
+      <div class="big">Notes</div>
+      <div class="pill">Optional: breakdowns, penalties, amazing cycles, etc.</div>
+      <textarea id="notes" placeholder="Optional...">${escapeHtml(r.notes)}</textarea>
+    </div>
+  `;
+  notes.querySelector("#notes").oninput = (e)=>{ r.notes = e.target.value; };
+  c.appendChild(notes);
+
+  // Nav
+  const nav = document.createElement("div");
+  nav.className = "btnRow";
+  nav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="primary" type="button" id="review">Review →</button>
+  `;
+  nav.querySelector("#back").onclick = () => {
+    state.step = "teleop";
+    // go back to last teleop segment
+    state.teleopSegmentIndex = TELEOP_SEGMENTS.length - 1;
+    render();
+  };
+  nav.querySelector("#review").onclick = () => {
+    state.step = "review";
+    render();
+  };
+
+  c.appendChild(nav);
+  app.appendChild(c);
+}
+
+function showReview(app) {
+  const r = state.record;
+
+  // quick summaries
+  const teleopSummary = r.teleop.map((seg, i) => {
+    const name = TELEOP_SEGMENTS[i].label;
+    if (seg.hubStatus === "Active") {
+      return `<div class="pill">${escapeHtml(name)}: Active • Fuel ${seg.activeFuel} • Cycles ${seg.activeCycles}</div>`;
+    }
+    const list = Array.isArray(seg.inactiveActivities) && seg.inactiveActivities.length
+      ? seg.inactiveActivities.join("; ")
+      : "Nothing";
+    return `<div class="pill">${escapeHtml(name)}: Inactive • ${escapeHtml(list)}</div>`;
+  }).join("");
+
+  const c = card("Review", `
+    <div class="pill">Team <b>${escapeHtml(r.teamNumber||"—")}</b> • Match <b>${escapeHtml(r.matchNumber||"—")}</b> • ${escapeHtml(r.alliance)}</div>
+    <div class="pill">Event: <b>${escapeHtml(r.event||"—")}</b></div>
+
+    <div class="sectionTitle">AUTO</div>
+    <div class="pill">Fuel: <b>${r.autoFuel}</b></div>
+    <div class="pill">Auto Climb: <b>${escapeHtml(r.autoClimb)}</b></div>
+    <div class="pill">Finish: <b>${escapeHtml(r.autoFinish)}</b></div>
+    <div class="pill">Auto Winner: <b>${escapeHtml(r.autoWinnerAlliance)}</b></div>
+
+    <div class="sectionTitle">TELEOP</div>
+    ${teleopSummary}
+
+    <div class="sectionTitle">END GAME</div>
+    <div class="pill">Last Active Fuel: <b>${r.endgameLastActiveFuel}</b></div>
+    <div class="pill">Climb: <b>${escapeHtml(r.endgameClimb)}</b></div>
+
+    <div class="sectionTitle">RATINGS</div>
+    <div class="pill">Accuracy: <b>${r.accuracyRating}</b></div>
+    <div class="pill">Defense: <b>${r.defenseRating}</b></div>
+    <div class="pill">Robot: <b>${r.robotRating}</b></div>
+    <div class="pill">Driver: <b>${r.driverRating}</b></div>
+
+    <div class="sectionTitle">NOTES</div>
+    <div class="pill" style="white-space:pre-wrap">${escapeHtml(r.notes||"—")}</div>
+  `);
+
+  const nav = document.createElement("div");
+  nav.className = "btnRow";
+  nav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="good" type="button" id="save">Save Match</button>
+  `;
+
+  nav.querySelector("#back").onclick = () => {
+    state.step = "endgame";
+    render();
+  };
+
+  nav.querySelector("#save").onclick = () => {
+    const records = loadRecords();
+    records.push({ ...r });
+    saveRecords(records);
+
+    // Prep next match (keep event + scoutName)
+    const next = newBlankRecord();
+    next.event = r.event;
+    next.scoutName = r.scoutName;
+    state.record = next;
+    state.step = "home";
+    alert("Saved locally ✅");
+    render();
+  };
+
+  c.appendChild(nav);
+  app.appendChild(c);
+}
+
+// initial render
+render();
