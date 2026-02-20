@@ -1,4 +1,4 @@
-const CACHE = "rebuildt-scout-v4";
+const CACHE = "rebuildt-scout-v6";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -16,20 +16,22 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  if (e.request.mode === "navigate") {
+  const req = e.request;
+
+  // Network-first for navigation so new versions load
+  if (req.mode === "navigate") {
     e.respondWith(
-      fetch(e.request)
+      fetch(req)
         .then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          caches.open(CACHE).then((c) => c.put(req, copy));
           return res;
         })
-        .catch(() => caches.match(e.request))
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
-  );
+  // Cache-first for assets
+  e.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
 });
