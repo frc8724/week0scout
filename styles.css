@@ -235,3 +235,17 @@ button.selected{
   margin-top: 10px;
   font-size: 13px;
 }
+
+/* Prevent iOS double-tap zoom / text selection when tapping buttons fast */
+html, body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+button, .counterBtns button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
