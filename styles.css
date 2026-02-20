@@ -41,6 +41,7 @@ footer{
   border-radius:18px;
   padding:14px;
   margin-bottom:12px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.25);
 }
 
 .big{font-size:20px;font-weight:800}
@@ -78,7 +79,7 @@ input,select,textarea{
   font-size:16px;
 }
 
-textarea{min-height:80px}
+textarea{min-height:90px; resize:vertical}
 
 button{
   border:none;
@@ -91,10 +92,12 @@ button{
   border:1px solid var(--border);
 }
 
-button.primary{background:rgba(57,198,255,.2)}
-button.good{background:rgba(57,217,138,.2)}
-button.bad{background:rgba(255,93,93,.2)}
-button.warn{background:rgba(255,204,102,.2)}
+button:active{transform:scale(.99)}
+
+button.primary{background:rgba(57,198,255,.2); border-color:rgba(57,198,255,.35)}
+button.good{background:rgba(57,217,138,.2); border-color:rgba(57,217,138,.35)}
+button.bad{background:rgba(255,93,93,.2); border-color:rgba(255,93,93,.35)}
+button.warn{background:rgba(255,204,102,.2); border-color:rgba(255,204,102,.35)}
 
 button.ghost{
   flex:1;
@@ -105,6 +108,26 @@ button.ghost{
 button.ghost.danger{
   color:#ffd4d4;
   border-color:rgba(255,93,93,.4);
+}
+
+.btnRow{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-top:12px;
+}
+
+.btnRow3{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:12px;
+  margin-top:12px;
+}
+
+button.selected{
+  outline: 3px solid rgba(57,198,255,.55);
+  border-color: rgba(57,198,255,.65);
+  background: rgba(57,198,255,.25);
 }
 
 .counter{
@@ -131,4 +154,62 @@ button.ghost.danger{
   height:64px;
   border-radius:18px;
   font-size:20px;
+}
+
+.sectionTitle{
+  margin-top:14px;
+  font-weight:800;
+  font-size:16px;
+  color:var(--text);
+}
+
+.checklist{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-top:10px;
+}
+
+.checkItem{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.03);
+}
+
+.checkItem input{
+  width:22px;
+  height:22px;
+}
+
+.savedList{
+  margin-top:10px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.savedRow{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.03);
+}
+
+.savedRow .meta{
+  color:var(--muted);
+  font-size:13px;
+}
+
+.smallBtn{
+  font-size:14px;
+  padding:10px 12px;
+  border-radius:14px;
 }
