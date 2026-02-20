@@ -1,0 +1,15 @@
+{
+  "name": "REBUILT Scout (Week 0)",
+  "short_name": "REBUILT Scout",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#07111d",
+  "theme_color": "#0b1b2b",
+  "icons": [
+    {
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAIElEQVR4nO3BMQEAAADCoPVPbQ0PoAAAAAAAAAAAAIBnA1cAAQ8f3CkAAAAASUVORK5CYII=",
+      "sizes": "64x64",
+      "type": "image/png"
+    }
+  ]
+}
