@@ -360,7 +360,7 @@ function showHome(app) {
       </div>
       <div>
         <label>Scout Name</label>
-        <input id="scoutName" placeholder="e.g. Riley" value="${escapeHtml(r.scoutName)}" />
+        <input id="scoutName" placeholder="e.g. Eli" value="${escapeHtml(r.scoutName)}" />
       </div>
       <div>
         <label>Team # <span class="pill warn">required</span></label>
