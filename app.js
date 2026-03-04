@@ -309,6 +309,22 @@ function recordsToCsv(records) {
 
 // --- Screens ---
 function render() {
+  // --- preserve focus + caret across re-renders ---
+  const active = document.activeElement;
+  const activeId = active && active.id ? active.id : null;
+
+  let selStart = null, selEnd = null;
+  const isTextInput =
+    active &&
+    (active.tagName === "INPUT" || active.tagName === "TEXTAREA") &&
+    typeof active.selectionStart === "number";
+
+  if (isTextInput) {
+    selStart = active.selectionStart;
+    selEnd = active.selectionEnd;
+  }
+
+  // --- normal render ---
   const app = document.getElementById("app");
   app.innerHTML = "";
 
@@ -319,6 +335,23 @@ function render() {
   if (state.step === "review") showReview(app);
 
   wireFooterButtons();
+
+  // --- restore focus after re-render ---
+  if (activeId) {
+    const el = document.getElementById(activeId);
+    if (el && typeof el.focus === "function") {
+      el.focus();
+
+      // restore caret for text inputs
+      if (
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA") &&
+        selStart !== null &&
+        typeof el.setSelectionRange === "function"
+      ) {
+        el.setSelectionRange(selStart, selEnd ?? selStart);
+      }
+    }
+  }
 }
 
 function showHome(app) {
