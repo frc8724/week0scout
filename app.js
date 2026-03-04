@@ -1,11 +1,13 @@
 // REBUILT Week 0 Scout (1 robot per device)
-// v9 changes:
-// - Added Auto Starting Position (Depot Trench, Depot Bump, Hub, Outpost Bump, Outpost Trench)
-// - CSV export includes autoStartPos
-// - Home screen focus-loss fix retained
-// - Required pills removed; labels use "*" marker
+// v10 changes:
+// - AUTO: removed Auto Fuel; Auto Climb is Yes/No; Auto Finish simplified
+// - TELEOP: consolidated to ONE page showing all segments (Transition + Shifts 1-4)
+//   * Active segments: cycles + cycle fuel count bucket
+//   * Inactive segments: activities checklist
+// - ENDGAME: removed endgame fuel; climb is No/Low/Mid/High; keep ratings/notes
+// - CSV updated accordingly
 
-const LS_KEY = "rebuildt_scout_records_v9";
+const LS_KEY = "rebuildt_scout_records_v10";
 
 function loadRecords() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
@@ -37,9 +39,8 @@ const INACTIVE_ACTIVITY_OPTIONS = [
 
 const AUTO_FINISH_OPTIONS = [
   "Alliance Zone",
-  "Neutral Zone (AZ Side)",
-  "Neutral Zone (Opp Side)",
-  "On Tower (Climbed)"
+  "Neutral Zone",
+  "Tower (Climbed)"
 ];
 
 const AUTO_START_POS_OPTIONS = [
@@ -50,11 +51,17 @@ const AUTO_START_POS_OPTIONS = [
   "Outpost Trench"
 ];
 
+const CYCLE_FUEL_BUCKETS = [
+  "<10",
+  "10-20",
+  "20-30",
+  "30+"
+];
+
 // --- App state ---
 const state = {
   step: "home", // home | auto | teleop | endgame | review
-  record: newBlankRecord(),
-  teleopSegmentIndex: 0
+  record: newBlankRecord()
 };
 
 function newBlankRecord() {
@@ -67,21 +74,21 @@ function newBlankRecord() {
     alliance: "Red",
     teamNumber: "",
 
-    autoFuel: 0,
-    autoClimb: "None", // None | L1 | L2 | L3
-    autoStartPos: "Hub",           // NEW
+    autoStartPos: "Hub",
+    autoClimb: false,                 // boolean
     autoFinish: "Alliance Zone",
-    autoWinnerAlliance: "Unknown", // Red | Blue | Tie | Unknown
+    autoWinnerAlliance: "Unknown",    // Red | Blue | Tie | Unknown
 
+    // Keep per-segment structure (better data + matches shift logic), but show on one page
     teleop: TELEOP_SEGMENTS.map(() => ({
       hubStatus: "Unknown",
-      activeFuel: 0,
       activeCycles: 0,
-      inactiveActivities: []
+      cycleFuelCount: "<10",          // bucket
+      inactiveActivities: [],
+      _initStatus: "Unknown"          // internal: helps us reset when status changes
     })),
 
-    endgameLastActiveFuel: 0,
-    endgameClimb: "None",
+    endgameClimb: "No",               // No | Low | Mid | High
 
     accuracyRating: 3,
     noDefense: false,
@@ -128,26 +135,6 @@ function counterRow3(label, value, onMinus1, onPlus1, onPlus5, hint) {
   m1.onclick = onMinus1;
   p1.onclick = onPlus1;
   p5.onclick = onPlus5;
-  return wrap;
-}
-
-function counterRow2(label, value, onMinus1, onPlus1, hint) {
-  const wrap = document.createElement("div");
-  wrap.className = "counter";
-  wrap.innerHTML = `
-    <div style="flex:1">
-      <div class="big">${escapeHtml(label)}</div>
-      <div class="pill">${escapeHtml(hint || "")}</div>
-    </div>
-    <div class="val">${value}</div>
-    <div class="counterBtns">
-      <button class="bad" type="button">−1</button>
-      <button class="good" type="button">+1</button>
-    </div>
-  `;
-  const [m1, p1] = wrap.querySelectorAll("button");
-  m1.onclick = onMinus1;
-  p1.onclick = onPlus1;
   return wrap;
 }
 
@@ -201,25 +188,27 @@ function isMyHubActiveForShift(shiftNum /*1-4*/) {
   return shiftNum % 2 === 1;
 }
 
-function currentTeleopHubStatus() {
-  const idx = state.teleopSegmentIndex;
-  if (idx === 0) return "Active";
+function hubStatusForSegmentIndex(idx /*0..4*/) {
+  if (idx === 0) return "Active"; // Transition always active
   return isMyHubActiveForShift(idx) ? "Active" : "Inactive";
 }
 
-function initializeSegmentOnEnter(idx) {
+function ensureSegmentInitialized(idx) {
   const seg = state.record.teleop[idx];
-  const status = currentTeleopHubStatus();
+  const status = hubStatusForSegmentIndex(idx);
 
-  if (seg.hubStatus !== status) {
+  if (seg._initStatus !== status) {
     seg.hubStatus = status;
+    seg._initStatus = status;
 
     if (status === "Active") {
-      seg.activeFuel = 0;
       seg.activeCycles = 0;
+      if (!seg.cycleFuelCount) seg.cycleFuelCount = "<10";
     } else {
       if (!Array.isArray(seg.inactiveActivities)) seg.inactiveActivities = [];
     }
+  } else {
+    seg.hubStatus = status;
   }
 }
 
@@ -273,9 +262,8 @@ async function shareOrDownload(filename, blob) {
 function recordsToCsv(records) {
   const baseCols = [
     "createdAt","event","matchNumber","scoutName","teamNumber","alliance",
-    "autoStartPos",                     // NEW
-    "autoFuel","autoClimb","autoFinish","autoWinnerAlliance",
-    "endgameLastActiveFuel","endgameClimb",
+    "autoStartPos","autoClimb","autoFinish","autoWinnerAlliance",
+    "endgameClimb",
     "accuracyRating","noDefense","defenseRating","robotRating","driverRating",
     "notes"
   ];
@@ -284,8 +272,8 @@ function recordsToCsv(records) {
   TELEOP_SEGMENTS.forEach((seg, i) => {
     teleopCols.push(
       `teleop_${i}_${seg.key}_hubStatus`,
-      `teleop_${i}_${seg.key}_activeFuel`,
       `teleop_${i}_${seg.key}_activeCycles`,
+      `teleop_${i}_${seg.key}_cycleFuelCount`,
       `teleop_${i}_${seg.key}_inactiveActivities`
     );
   });
@@ -307,8 +295,8 @@ function recordsToCsv(records) {
       const inactive = Array.isArray(t.inactiveActivities) ? t.inactiveActivities.join("; ") : "";
       row.push(
         escape(t.hubStatus),
-        escape(t.activeFuel),
         escape(t.activeCycles),
+        escape(t.cycleFuelCount),
         escape(inactive)
       );
     }
@@ -386,8 +374,8 @@ function showHome(app) {
   const elEvent = c.querySelector("#event");
   const elMatch = c.querySelector("#matchNumber");
   const elScout = c.querySelector("#scoutName");
-  const elTeam  = c.querySelector("#teamNumber");
-  const elAlli  = c.querySelector("#alliance");
+  const elTeam = c.querySelector("#teamNumber");
+  const elAlli = c.querySelector("#alliance");
   const btnStart = c.querySelector("#startAuto");
   const reqMsg = c.querySelector("#reqMsg");
 
@@ -459,7 +447,7 @@ function showAuto(app) {
   const r = state.record;
   const winnerSelected = (r.autoWinnerAlliance === "Red" || r.autoWinnerAlliance === "Blue" || r.autoWinnerAlliance === "Tie");
 
-  const c = card("AUTO (all stats)", `
+  const c = card("AUTO", `
     <div class="pill">Auto Result winner is <b>required</b> before TELEOP.</div>
     ${winnerSelected ? "" : `<div class="inlineWarn">Select Auto Result winner (Red / Blue / Tie) to allow TELEOP.</div>`}
   `);
@@ -473,13 +461,13 @@ function showAuto(app) {
   nav.querySelector("#back").onclick = () => { state.step="home"; render(); };
   nav.querySelector("#next").onclick = () => {
     if (!winnerSelected) return;
-    state.teleopSegmentIndex = 0;
-    initializeSegmentOnEnter(0);
+    // initialize segments once we know autoWinnerAlliance
+    for (let i = 0; i < TELEOP_SEGMENTS.length; i++) ensureSegmentInitialized(i);
     state.step="teleop";
     render();
   };
 
-  // NEW: Auto start position
+  // Auto start position
   const startPos = document.createElement("div");
   startPos.className = "counter";
   startPos.innerHTML = `
@@ -496,37 +484,28 @@ function showAuto(app) {
   startPos.querySelector("#autoStartPos").onchange = (e)=>{ r.autoStartPos = e.target.value; };
   c.appendChild(startPos);
 
-  c.appendChild(counterRow3(
-    "Auto Fuel",
-    r.autoFuel,
-    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel - 1); render(); },
-    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 1); render(); },
-    ()=>{ r.autoFuel = clampNonNeg(r.autoFuel + 5); render(); },
-    "Count fuel scored by this robot in AUTO."
-  ));
-
+  // Auto climb (Yes/No checkbox)
   const climb = document.createElement("div");
   climb.className = "counter";
   climb.innerHTML = `
     <div style="flex:1">
       <div class="big">Auto Climb</div>
       <div class="pill">Did they climb during AUTO?</div>
-      <select id="autoClimb" style="margin-top:10px">
-        <option value="None" ${r.autoClimb==="None"?"selected":""}>None</option>
-        <option value="L1" ${r.autoClimb==="L1"?"selected":""}>Level 1</option>
-        <option value="L2" ${r.autoClimb==="L2"?"selected":""}>Level 2</option>
-        <option value="L3" ${r.autoClimb==="L3"?"selected":""}>Level 3</option>
-      </select>
+      <label class="checkItem" style="margin-top:10px">
+        <input type="checkbox" id="autoClimb" ${r.autoClimb ? "checked" : ""} />
+        <span>Yes</span>
+      </label>
     </div>
   `;
-  climb.querySelector("#autoClimb").onchange = (e)=>{ r.autoClimb = e.target.value; };
+  climb.querySelector("#autoClimb").onchange = (e)=>{ r.autoClimb = !!e.target.checked; };
   c.appendChild(climb);
 
+  // Auto finish (simplified)
   const finish = document.createElement("div");
   finish.className = "counter";
   finish.innerHTML = `
     <div style="flex:1">
-      <div class="big">Where did they finish AUTO?</div>
+      <div class="big">Finish (AUTO)</div>
       <div class="pill">Choose one</div>
       <select id="autoFinish" style="margin-top:10px">
         ${AUTO_FINISH_OPTIONS.map(opt => `<option value="${escapeHtml(opt)}" ${r.autoFinish===opt?"selected":""}>${escapeHtml(opt)}</option>`).join("")}
@@ -536,6 +515,7 @@ function showAuto(app) {
   finish.querySelector("#autoFinish").onchange = (e)=>{ r.autoFinish = e.target.value; };
   c.appendChild(finish);
 
+  // Auto winner required
   const resultWrap = document.createElement("div");
   resultWrap.className = "card";
   resultWrap.style.marginTop = "12px";
@@ -564,97 +544,97 @@ function showAuto(app) {
 
 function showTeleop(app) {
   const r = state.record;
-  const idx = state.teleopSegmentIndex;
 
-  initializeSegmentOnEnter(idx);
+  // Always keep segments synced to current auto result / alliance
+  for (let i = 0; i < TELEOP_SEGMENTS.length; i++) ensureSegmentInitialized(i);
 
-  const meta = TELEOP_SEGMENTS[idx];
-  const status = currentTeleopHubStatus();
-  const seg = r.teleop[idx];
-
-  const c = card(`TELEOP: ${meta.label}`, `
-    <div class="pill">Your HUB is: <b>${status}</b></div>
-    <div class="pill">Segment ${idx+1} of ${TELEOP_SEGMENTS.length}</div>
-    <div style="height:10px"></div>
-    <button class="${status==="Active" ? "good" : "bad"}" type="button" style="width:100%; font-size:22px; padding:18px">
-      ${status==="Active" ? "ACTIVE (fuel & cycles reset this segment)" : "INACTIVE (multi-select what they did)"}
-    </button>
+  const c = card("TELEOP", `
+    <div class="pill">All segments on one page. Active = Cycles + Fuel Bucket. Inactive = Checklist.</div>
   `);
 
-  if (status === "Active") {
-    c.appendChild(counterRow3(
-      "Fuel (this active segment)",
-      seg.activeFuel,
-      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel - 1); render(); },
-      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 1); render(); },
-      ()=>{ seg.activeFuel = clampNonNeg(seg.activeFuel + 5); render(); },
-      "Resets to 0 when this segment becomes active."
-    ));
+  TELEOP_SEGMENTS.forEach((meta, idx) => {
+    const status = hubStatusForSegmentIndex(idx);
+    const seg = r.teleop[idx];
 
-    c.appendChild(counterRow2(
-      "Cycles (this active segment)",
-      seg.activeCycles,
-      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles - 1); render(); },
-      ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles + 1); render(); },
-      "How many cycles during this segment."
-    ));
-  } else {
-    const wrap = document.createElement("div");
-    wrap.className = "card";
-    wrap.innerHTML = `
-      <div class="big">Inactive Activity (select all that apply)</div>
-      <div class="pill">Choices are multi-select</div>
-      <div class="checklist" id="checklist"></div>
+    const segCard = document.createElement("div");
+    segCard.className = "card";
+    segCard.style.marginTop = "12px";
+    segCard.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+        <div class="big">${escapeHtml(meta.label)}</div>
+        <div class="pill">HUB: <b>${escapeHtml(status)}</b></div>
+      </div>
     `;
 
-    const list = wrap.querySelector("#checklist");
-    INACTIVE_ACTIVITY_OPTIONS.forEach(opt => {
-      const item = document.createElement("label");
-      item.className = "checkItem";
-      const checked = seg.inactiveActivities.includes(opt);
-      item.innerHTML = `
-        <input type="checkbox" ${checked ? "checked" : ""} />
-        <span>${escapeHtml(opt)}</span>
-      `;
-      const cb = item.querySelector("input");
-      cb.onchange = () => {
-        const set = new Set(seg.inactiveActivities);
-        if (cb.checked) set.add(opt);
-        else set.delete(opt);
-        seg.inactiveActivities = Array.from(set);
-      };
-      list.appendChild(item);
-    });
+    if (status === "Active") {
+      // Cycles counter
+      segCard.appendChild(counterRow3(
+        "Cycles",
+        seg.activeCycles,
+        ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles - 1); render(); },
+        ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles + 1); render(); },
+        ()=>{ seg.activeCycles = clampNonNeg(seg.activeCycles + 5); render(); },
+        "How many times they collected Fuel and then shot again."
+      ));
 
-    c.appendChild(wrap);
-  }
+      // Cycle Fuel Count bucket
+      const bucket = document.createElement("div");
+      bucket.className = "counter";
+      bucket.innerHTML = `
+        <div style="flex:1">
+          <div class="big">Cycle Fuel Count</div>
+          <div class="pill">Typical Fuel per cycle (estimate)</div>
+          <select id="bucket_${idx}" style="margin-top:10px">
+            ${CYCLE_FUEL_BUCKETS.map(opt =>
+              `<option value="${escapeHtml(opt)}" ${seg.cycleFuelCount===opt?"selected":""}>${escapeHtml(opt)}</option>`
+            ).join("")}
+          </select>
+        </div>
+      `;
+      bucket.querySelector(`#bucket_${idx}`).onchange = (e)=>{ seg.cycleFuelCount = e.target.value; };
+      segCard.appendChild(bucket);
+    } else {
+      const list = document.createElement("div");
+      list.innerHTML = `
+        <div class="sectionTitle">Inactive Activities</div>
+        <div class="pill">Select what they did during this segment.</div>
+        <div class="checklist"></div>
+      `;
+
+      const host = list.querySelector(".checklist");
+      INACTIVE_ACTIVITY_OPTIONS.forEach((opt) => {
+        const id = `chk_${idx}_${opt.replaceAll(" ","_").replaceAll("(","").replaceAll(")","")}`;
+        const checked = Array.isArray(seg.inactiveActivities) && seg.inactiveActivities.includes(opt);
+        const item = document.createElement("label");
+        item.className = "checkItem";
+        item.innerHTML = `
+          <input type="checkbox" id="${escapeHtml(id)}" ${checked ? "checked" : ""} />
+          <span>${escapeHtml(opt)}</span>
+        `;
+        const cb = item.querySelector("input");
+        cb.onchange = () => {
+          if (!Array.isArray(seg.inactiveActivities)) seg.inactiveActivities = [];
+          const has = seg.inactiveActivities.includes(opt);
+          if (cb.checked && !has) seg.inactiveActivities.push(opt);
+          if (!cb.checked && has) seg.inactiveActivities = seg.inactiveActivities.filter(x => x !== opt);
+        };
+        host.appendChild(item);
+      });
+
+      segCard.appendChild(list);
+    }
+
+    c.appendChild(segCard);
+  });
 
   const nav = document.createElement("div");
   nav.className = "btnRow";
   nav.innerHTML = `
     <button type="button" id="back">← Back</button>
-    <button class="primary" type="button" id="next">${idx === TELEOP_SEGMENTS.length-1 ? "End Game →" : "Next →"}</button>
+    <button class="primary" type="button" id="next">End Game →</button>
   `;
-
-  nav.querySelector("#back").onclick = () => {
-    if (idx === 0) {
-      state.step = "auto";
-      render();
-      return;
-    }
-    state.teleopSegmentIndex--;
-    render();
-  };
-
-  nav.querySelector("#next").onclick = () => {
-    if (idx === TELEOP_SEGMENTS.length-1) {
-      state.step = "endgame";
-      render();
-      return;
-    }
-    state.teleopSegmentIndex++;
-    render();
-  };
+  nav.querySelector("#back").onclick = () => { state.step="auto"; render(); };
+  nav.querySelector("#next").onclick = () => { state.step="endgame"; render(); };
 
   c.appendChild(nav);
   app.appendChild(c);
@@ -664,17 +644,8 @@ function showEndgame(app) {
   const r = state.record;
 
   const c = card("End Game", `
-    <div class="pill">Includes last active hub fuel, climb, and ratings (including accuracy).</div>
+    <div class="pill">Climb + ratings + notes.</div>
   `);
-
-  c.appendChild(counterRow3(
-    "Last Active Hub Fuel Scoring",
-    r.endgameLastActiveFuel,
-    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel - 1); render(); },
-    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel + 1); render(); },
-    ()=>{ r.endgameLastActiveFuel = clampNonNeg(r.endgameLastActiveFuel + 5); render(); },
-    "Fuel scored during End Game (both hubs active)."
-  ));
 
   const climbWrap = document.createElement("div");
   climbWrap.className = "counter";
@@ -683,10 +654,10 @@ function showEndgame(app) {
       <div class="big">Climb</div>
       <div class="pill">End Game climb level</div>
       <select id="climb" style="margin-top:10px">
-        <option value="None" ${r.endgameClimb==="None"?"selected":""}>None</option>
-        <option value="L1" ${r.endgameClimb==="L1"?"selected":""}>Level 1</option>
-        <option value="L2" ${r.endgameClimb==="L2"?"selected":""}>Level 2</option>
-        <option value="L3" ${r.endgameClimb==="L3"?"selected":""}>Level 3</option>
+        <option value="No" ${r.endgameClimb==="No"?"selected":""}>No</option>
+        <option value="Low" ${r.endgameClimb==="Low"?"selected":""}>Low</option>
+        <option value="Mid" ${r.endgameClimb==="Mid"?"selected":""}>Mid</option>
+        <option value="High" ${r.endgameClimb==="High"?"selected":""}>High</option>
       </select>
     </div>
   `;
@@ -761,15 +732,8 @@ function showEndgame(app) {
     <button type="button" id="back">← Back</button>
     <button class="primary" type="button" id="review">Review →</button>
   `;
-  nav.querySelector("#back").onclick = () => {
-    state.step = "teleop";
-    state.teleopSegmentIndex = TELEOP_SEGMENTS.length - 1;
-    render();
-  };
-  nav.querySelector("#review").onclick = () => {
-    state.step = "review";
-    render();
-  };
+  nav.querySelector("#back").onclick = () => { state.step = "teleop"; render(); };
+  nav.querySelector("#review").onclick = () => { state.step = "review"; render(); };
 
   c.appendChild(nav);
   app.appendChild(c);
@@ -778,10 +742,10 @@ function showEndgame(app) {
 function showReview(app) {
   const r = state.record;
 
-  const teleopSummary = r.teleop.map((seg, i) => {
-    const name = TELEOP_SEGMENTS[i].label;
-    if (seg.hubStatus === "Active") {
-      return `<div class="pill">${escapeHtml(name)}: Active • Fuel ${seg.activeFuel} • Cycles ${seg.activeCycles}</div>`;
+  const teleopSummary = (r.teleop || []).map((seg, i) => {
+    const name = TELEOP_SEGMENTS[i]?.label || `Seg ${i}`;
+    if ((seg.hubStatus || "Unknown") === "Active") {
+      return `<div class="pill">${escapeHtml(name)}: Active • Cycles <b>${seg.activeCycles ?? 0}</b> • Fuel/Cycle <b>${escapeHtml(seg.cycleFuelCount || "—")}</b></div>`;
     }
     const list = Array.isArray(seg.inactiveActivities) && seg.inactiveActivities.length
       ? seg.inactiveActivities.join("; ")
@@ -797,8 +761,7 @@ function showReview(app) {
 
     <div class="sectionTitle">AUTO</div>
     <div class="pill">Start: <b>${escapeHtml(r.autoStartPos)}</b></div>
-    <div class="pill">Fuel: <b>${r.autoFuel}</b></div>
-    <div class="pill">Auto Climb: <b>${escapeHtml(r.autoClimb)}</b></div>
+    <div class="pill">Auto Climb: <b>${r.autoClimb ? "Yes" : "No"}</b></div>
     <div class="pill">Finish: <b>${escapeHtml(r.autoFinish)}</b></div>
     <div class="pill">Auto Winner: <b>${escapeHtml(r.autoWinnerAlliance)}</b></div>
 
@@ -806,7 +769,6 @@ function showReview(app) {
     ${teleopSummary}
 
     <div class="sectionTitle">END GAME</div>
-    <div class="pill">Last Active Fuel: <b>${r.endgameLastActiveFuel}</b></div>
     <div class="pill">Climb: <b>${escapeHtml(r.endgameClimb)}</b></div>
 
     <div class="sectionTitle">RATINGS</div>
