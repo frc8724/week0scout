@@ -1,13 +1,11 @@
-// REBUILT Scout (Week 0) - v12
-// - Auto: no auto fuel; auto climb yes/no; finish simplified
-// - Teleop: one Active section + one Inactive section (no per-shift detail)
-// - Cycles: -1/+1 only
-// - Accuracy rating meaning defined:
-//   1:<20%  2:<50%  3:<75%  4:<90%  5:>90%
-// - CSV export includes computed analytics fields (estimated attempts/scored, etc.)
-// - Focus-preserving render to avoid iOS losing cursor while typing
+// REBUILT Scout (Week 0) - v13
+// Changes from v12:
+// - AUTO: add Auto Fuel Scored (estimate) counter (-1/+1)
+// - CSV: export autoFuelScored + estimatedTotalFuelScored (auto + teleop estimate)
+// - Teleop remains aggregated Active/Inactive
+// - Focus-preserving render included
 
-const LS_KEY = "rebuildt_scout_records_v12";
+const LS_KEY = "rebuildt_scout_records_v13";
 const DEVICE_ID_KEY = "rebuildt_scout_device_id";
 
 function loadRecords() {
@@ -53,16 +51,10 @@ const AUTO_START_POS_OPTIONS = [
   "Outpost Trench"
 ];
 
-const CYCLE_FUEL_BUCKETS = [
-  "<10",
-  "10-20",
-  "20-30",
-  "30+"
-];
+const CYCLE_FUEL_BUCKETS = ["<10", "10-20", "20-30", "30+"];
 
 // --- Analytics helpers (for export) ---
 function fuelBucketMidpoint(bucket){
-  // Midpoints tuned for “estimate without over-crediting”
   if(bucket === "<10") return 5;
   if(bucket === "10-20") return 15;
   if(bucket === "20-30") return 25;
@@ -70,8 +62,6 @@ function fuelBucketMidpoint(bucket){
   return 0;
 }
 function accuracyPercentFromRating(rating){
-  // your defined bands; we pick a representative value in each band
-  // (you can tweak these later if your scouts trend high/low)
   const map = {
     1: 0.10, // <20%
     2: 0.35, // <50%
@@ -100,7 +90,8 @@ function newBlankRecord() {
     teamNumber: "",
 
     autoStartPos: "Hub",
-    autoClimb: false,                 // boolean
+    autoFuelScored: 0,               // NEW: small enough to track in auto
+    autoClimb: false,
     autoFinish: "Alliance Zone",
     autoWinnerAlliance: "Unknown",    // Red | Blue | Tie | Unknown
 
@@ -208,7 +199,6 @@ function isMyHubActiveForShift(shiftNum /*1-4*/) {
   if (myAllianceWonAuto) return shiftNum % 2 === 0; // winner inactive first
   return shiftNum % 2 === 1;
 }
-
 function activeShiftLabels() {
   const actives = ["Transition"];
   for (let s = 1; s <= 4; s++) if (isMyHubActiveForShift(s)) actives.push(`Shift ${s}`);
@@ -230,8 +220,6 @@ function wireFooterButtons() {
     if (!records.length) return alert("No saved data yet.");
 
     const stamp = new Date().toISOString().replaceAll(":","-").slice(0,19);
-
-    // helpful filename for later merging/debugging
     const safeScout = (state.record.scoutName || "scout").replaceAll(/[^a-z0-9]/gi, "");
     const filename = `rebuildt_${stamp}_${safeScout}.csv`;
 
@@ -274,27 +262,22 @@ async function shareOrDownload(filename, blob) {
 // --- CSV ---
 function recordsToCsv(records) {
   const cols = [
-    // identifiers
     "createdAt","deviceId","event","matchNumber","scoutName","teamNumber","alliance",
 
-    // auto
-    "autoStartPos","autoClimb","autoFinish","autoWinnerAlliance",
+    "autoStartPos","autoFuelScored","autoClimb","autoFinish","autoWinnerAlliance",
 
-    // teleop raw
     "teleopActiveCycles","teleopCycleFuelCount","teleopInactiveActivities",
 
-    // endgame raw
     "endgameClimb",
 
-    // ratings raw
     "accuracyRating","noDefense","defenseRating","robotRating","driverRating",
 
-    // analytics (computed)
+    // computed
     "activeWindows","inactiveWindows","activeWindowCount","inactiveWindowCount",
     "fuelBucketMidpoint","accuracyPercent",
     "estimatedFuelAttempted","estimatedFuelScored","estimatedFuelScoredPerCycle",
+    "estimatedTotalFuelScored",
 
-    // notes
     "notes"
   ];
 
@@ -306,17 +289,19 @@ function recordsToCsv(records) {
       ? r.teleopInactiveActivities.join("; ")
       : "";
 
-    // computed window labels
-    // (uses the record’s alliance + auto winner)
-    state.record = r; // temporary for label helpers
+    // compute using the record’s own alliance/auto winner by temporarily referencing it
+    state.record = r;
     const act = activeShiftLabels();
     const inact = inactiveShiftLabels();
 
     const midpoint = fuelBucketMidpoint(r.teleopCycleFuelCount);
     const accPct = accuracyPercentFromRating(r.accuracyRating);
     const attempts = (r.teleopActiveCycles || 0) * midpoint;
-    const scored = attempts * accPct;
-    const scoredPerCycle = (r.teleopActiveCycles || 0) > 0 ? (scored / r.teleopActiveCycles) : 0;
+    const teleopScored = attempts * accPct;
+    const scoredPerCycle = (r.teleopActiveCycles || 0) > 0 ? (teleopScored / r.teleopActiveCycles) : 0;
+
+    const autoFuel = clampNonNeg(r.autoFuelScored || 0);
+    const totalFuel = autoFuel + teleopScored;
 
     const row = cols.map((c) => {
       if (c === "teleopInactiveActivities") return escape(inactive);
@@ -331,8 +316,9 @@ function recordsToCsv(records) {
       if (c === "accuracyPercent") return escape(accPct);
 
       if (c === "estimatedFuelAttempted") return escape(attempts);
-      if (c === "estimatedFuelScored") return escape(scored.toFixed(1));
+      if (c === "estimatedFuelScored") return escape(teleopScored.toFixed(1));
       if (c === "estimatedFuelScoredPerCycle") return escape(scoredPerCycle.toFixed(1));
+      if (c === "estimatedTotalFuelScored") return escape(totalFuel.toFixed(1));
 
       return escape(r[c]);
     });
@@ -343,7 +329,7 @@ function recordsToCsv(records) {
   return rows.join("\n");
 }
 
-// --- Focus-preserving render (prevents “lose focus after 1 char” on iOS) ---
+// --- Focus-preserving render ---
 function render() {
   const active = document.activeElement;
   const activeId = active && active.id ? active.id : null;
@@ -515,14 +501,14 @@ function showAuto(app) {
     ${winnerSelected ? "" : `<div class="inlineWarn">Select Auto Result winner (Red / Blue / Tie) to allow TELEOP.</div>`}
   `);
 
-  const nav = document.createElement("div");
-  nav.className = "btnRow";
-  nav.innerHTML = `
-    <button type="button" id="back">← Back</button>
-    <button class="primary" type="button" id="next" ${winnerSelected ? "" : "disabled"}>Start TELEOP →</button>
-  `;
-  nav.querySelector("#back").onclick = () => { state.step="home"; render(); };
-  nav.querySelector("#next").onclick = () => { if (!winnerSelected) return; state.step="teleop"; render(); };
+  // Auto Fuel Scored (estimate)
+  c.appendChild(counterRow2(
+    "Auto Fuel Scored (estimate)",
+    r.autoFuelScored,
+    ()=>{ r.autoFuelScored = clampNonNeg(r.autoFuelScored - 1); render(); },
+    ()=>{ r.autoFuelScored = clampNonNeg(r.autoFuelScored + 1); render(); },
+    "How many Fuel you believe they successfully scored during AUTO."
+  ));
 
   const startPos = document.createElement("div");
   startPos.className = "counter";
@@ -592,6 +578,16 @@ function showAuto(app) {
   resultWrap.appendChild(current);
 
   c.appendChild(resultWrap);
+
+  const nav = document.createElement("div");
+  nav.className = "btnRow";
+  nav.innerHTML = `
+    <button type="button" id="back">← Back</button>
+    <button class="primary" type="button" id="next" ${winnerSelected ? "" : "disabled"}>Start TELEOP →</button>
+  `;
+  nav.querySelector("#back").onclick = () => { state.step="home"; render(); };
+  nav.querySelector("#next").onclick = () => { if (!winnerSelected) return; state.step="teleop"; render(); };
+
   c.appendChild(nav);
   app.appendChild(c);
 }
@@ -639,15 +635,16 @@ function showTeleop(app) {
   bucket.querySelector("#cycleBucket").onchange = (e)=>{ r.teleopCycleFuelCount = e.target.value; };
   activeCard.appendChild(bucket);
 
-  // Show live estimate so scouts can sanity-check their inputs (optional but helpful)
+  // live estimate
   const estMid = fuelBucketMidpoint(r.teleopCycleFuelCount);
   const estAcc = accuracyPercentFromRating(r.accuracyRating);
   const estAttempt = (r.teleopActiveCycles || 0) * estMid;
-  const estScored = estAttempt * estAcc;
+  const estTeleopScored = estAttempt * estAcc;
+  const estTotalScored = clampNonNeg(r.autoFuelScored || 0) + estTeleopScored;
 
   const live = document.createElement("div");
   live.className = "pill";
-  live.innerHTML = `Live estimate (based on End Game Accuracy slider): Attempted ~<b>${estAttempt}</b>, Scored ~<b>${estScored.toFixed(0)}</b>`;
+  live.innerHTML = `Live estimate: Teleop Scored ~<b>${estTeleopScored.toFixed(0)}</b> • Total (Auto+Teleop) ~<b>${estTotalScored.toFixed(0)}</b>`;
   activeCard.appendChild(live);
 
   c.appendChild(activeCard);
@@ -696,7 +693,6 @@ function showTeleop(app) {
 
 function showEndgame(app) {
   const r = state.record;
-
   const c = card("End Game", `<div class="pill">Climb + ratings + notes.</div>`);
 
   const climbWrap = document.createElement("div");
@@ -750,18 +746,8 @@ function showEndgame(app) {
   renderDefenseSlider();
   c.appendChild(defenseCard);
 
-  c.appendChild(ratingRow(
-    "Robot performance",
-    r.robotRating,
-    (v)=>{ r.robotRating = v; render(); },
-    "Overall effectiveness"
-  ));
-  c.appendChild(ratingRow(
-    "Driver performance",
-    r.driverRating,
-    (v)=>{ r.driverRating = v; render(); },
-    "Control, awareness, speed"
-  ));
+  c.appendChild(ratingRow("Robot performance", r.robotRating, (v)=>{ r.robotRating = v; render(); }, "Overall effectiveness"));
+  c.appendChild(ratingRow("Driver performance", r.driverRating, (v)=>{ r.driverRating = v; render(); }, "Control, awareness, speed"));
 
   const notes = document.createElement("div");
   notes.className = "counter";
@@ -797,17 +783,18 @@ function showReview(app) {
 
   const defenseText = r.noDefense ? "No Defense" : String(r.defenseRating);
 
-  // quick computed preview
   const midpoint = fuelBucketMidpoint(r.teleopCycleFuelCount);
   const accPct = accuracyPercentFromRating(r.accuracyRating);
   const attempts = (r.teleopActiveCycles || 0) * midpoint;
-  const scored = attempts * accPct;
+  const teleopScored = attempts * accPct;
+  const totalScored = clampNonNeg(r.autoFuelScored || 0) + teleopScored;
 
   const c = card("Review", `
     <div class="pill">Team <b>${escapeHtml(r.teamNumber||"—")}</b> • Match <b>${escapeHtml(r.matchNumber||"—")}</b> • ${escapeHtml(r.alliance)}</div>
     <div class="pill">Event: <b>${escapeHtml(r.event||"—")}</b> • Device: <b>${escapeHtml(r.deviceId||"—")}</b></div>
 
     <div class="sectionTitle">AUTO</div>
+    <div class="pill">Auto Fuel Scored: <b>${r.autoFuelScored}</b></div>
     <div class="pill">Start: <b>${escapeHtml(r.autoStartPos)}</b></div>
     <div class="pill">Auto Climb: <b>${r.autoClimb ? "Yes" : "No"}</b></div>
     <div class="pill">Finish: <b>${escapeHtml(r.autoFinish)}</b></div>
@@ -817,7 +804,7 @@ function showReview(app) {
     <div class="pill">Active Cycles: <b>${r.teleopActiveCycles ?? 0}</b></div>
     <div class="pill">Fuel per Cycle: <b>${escapeHtml(r.teleopCycleFuelCount || "—")}</b> (midpoint ${midpoint})</div>
     <div class="pill">Inactive Activities: <b>${escapeHtml(inactiveList)}</b></div>
-    <div class="pill">Estimated Attempted: <b>${attempts}</b> • Estimated Scored: <b>${scored.toFixed(0)}</b></div>
+    <div class="pill">Estimated Teleop Scored: <b>${teleopScored.toFixed(0)}</b> • Estimated Total (Auto+Teleop): <b>${totalScored.toFixed(0)}</b></div>
 
     <div class="sectionTitle">END GAME</div>
     <div class="pill">Climb: <b>${escapeHtml(r.endgameClimb)}</b></div>
@@ -838,7 +825,6 @@ function showReview(app) {
     <button type="button" id="back">← Back</button>
     <button class="good" type="button" id="save">Save Match</button>
   `;
-
   nav.querySelector("#back").onclick = () => { state.step = "endgame"; render(); };
 
   nav.querySelector("#save").onclick = () => {
